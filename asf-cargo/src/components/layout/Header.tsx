@@ -21,6 +21,7 @@ export default function Header() {
       <a href="/#equipment">Equipment</a>
       <a href="/#requirements">Requirements</a>
       <a href="/#contact">Contact</a>
+      <a href="/apply.html" className="btn btn-primary nav-links-apply">Apply Now</a>
     </>
   );
 
