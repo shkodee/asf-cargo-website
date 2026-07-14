@@ -165,7 +165,7 @@
 /* ===== Contact strip ===== */
 .contact-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
 .contact-card { background: var(--white); padding: 24px; border: 1px solid rgba(12,28,52,0.1); }
-.contact-card .eyebrow { margin-bottom: 8px; }
+.contact-card .eyebrow { display: flex; margin-bottom: 8px; }
 .contact-card a, .contact-card div.val { font-family: 'IBM Plex Mono', monospace; color: var(--navy); font-weight: 600; font-size: 0.95rem; }
 @media (max-width: 900px) { .contact-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 560px) { .contact-grid { grid-template-columns: 1fr; } }
