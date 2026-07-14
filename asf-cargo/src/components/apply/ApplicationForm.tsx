@@ -220,18 +220,6 @@ export default function ApplicationForm() {
           </div>
         </div>
 
-        <div className="form-row single">
-          <div className="field">
-            <label htmlFor="message">Anything we should know?</label>
-            <textarea
-              id="message"
-              placeholder="Preferred start date, questions, driving partner's name if applying as a team, etc."
-              value={form.message}
-              onChange={(e) => update('message', e.target.value)}
-            />
-          </div>
-        </div>
-
         {form.hasCoDriver === coDriverOptions[0] && (
           <>
             <div className="form-row single">
@@ -307,6 +295,18 @@ export default function ApplicationForm() {
             </div>
           </>
         )}
+
+        <div className="form-row single">
+          <div className="field">
+            <label htmlFor="message">Anything we should know?</label>
+            <textarea
+              id="message"
+              placeholder="Preferred start date, questions, driving partner's name if applying as a team, etc."
+              value={form.message}
+              onChange={(e) => update('message', e.target.value)}
+            />
+          </div>
+        </div>
 
         <button type="submit" className="btn btn-primary btn-block" disabled={submitting}>
           {submitting ? 'Submitting...' : 'Submit Application'}
