@@ -58,7 +58,7 @@ export default {
 };
 
 function buildSummary(d) {
-  return [
+  const lines = [
     `🚛 NEW DRIVER APPLICATION`,
     ``,
     `Name: ${d.firstName || ""} ${d.lastName || ""}`,
@@ -68,8 +68,22 @@ function buildSummary(d) {
     `CDL #: ${d.cdlNumber || "-"} (${d.cdlState || "-"})`,
     `Experience: ${d.experience || "-"}`,
     `Location: ${d.city || "-"}`,
-    `Message: ${d.message || "-"}`,
-  ].join("\n");
+  ];
+
+  if (d.hasCoDriver) {
+    lines.push(``, `Co-driver: ${d.hasCoDriver}`);
+    if (d.coDriverFirstName || d.coDriverLastName) {
+      lines.push(
+        `  Name: ${d.coDriverFirstName || ""} ${d.coDriverLastName || ""}`,
+        `  Phone: ${d.coDriverPhone || "-"}`,
+        `  CDL #: ${d.coDriverCdlNumber || "-"} (${d.coDriverCdlState || "-"})`,
+        `  Experience: ${d.coDriverExperience || "-"}`
+      );
+    }
+  }
+
+  lines.push(``, `Message: ${d.message || "-"}`);
+  return lines.join("\n");
 }
 
 async function sendTelegram(env, text) {

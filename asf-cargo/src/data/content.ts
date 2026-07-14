@@ -97,3 +97,8 @@ export const experienceOptions = [
 ];
 
 export const positionOptions = ['Solo Driver', 'Team Driver', 'Not sure yet'];
+
+export const coDriverOptions = [
+  'I already have a co-driver',
+  'I need to be paired with a co-driver',
+];

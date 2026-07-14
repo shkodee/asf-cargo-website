@@ -9,6 +9,13 @@ export interface ApplicationPayload {
   experience: string;
   city: string;
   message: string;
+  hasCoDriver: string;
+  coDriverFirstName: string;
+  coDriverLastName: string;
+  coDriverPhone: string;
+  coDriverCdlNumber: string;
+  coDriverCdlState: string;
+  coDriverExperience: string;
 }
 
 export interface Lane {
