@@ -1,22 +1,28 @@
 # ASF Cargo LLC — Website
 
-Driver-recruiting website for ASF Cargo LLC, a CDL-A trucking company. Static HTML/CSS/JS, no build step.
+Driver-recruiting website for ASF Cargo LLC, a CDL-A trucking company. React + TypeScript + Vite.
 
 ## Structure
 ```
 asf-cargo/
-├── index.html          # homepage
-├── apply.html          # driver application form
-├── contact.html        # contact info page
-├── assets/              # styles, script, logo
-└── worker/              # Cloudflare Worker relaying form submissions to Telegram + email
+├── index.html / apply.html   # Vite entry points (homepage, application form)
+├── src/                        # components, pages, hooks, data, styles
+├── public/logo.png
+└── worker/                     # Cloudflare Worker relaying form submissions to Telegram + email
 ```
 
 ## Running locally
-Open `asf-cargo/index.html` directly in a browser, or serve the `asf-cargo/` folder with any static file server.
+```
+cd asf-cargo
+npm install
+npm run dev       # dev server
+npm run build     # production build → dist/
+npm run preview   # serve the production build locally
+```
 
 ## Deployment
-- **Site**: Cloudflare Pages
-- **Form relay**: Cloudflare Worker (`asf-cargo/worker/`) — see `asf-cargo/worker/README.md` for setup
+- **Site**: Cloudflare Workers (static assets), auto-deploys from `main` via GitHub — requires
+  the Build command `npm run build` set in the Cloudflare project's settings
+- **Form relay**: separate Cloudflare Worker (`asf-cargo/worker/`) — see `asf-cargo/worker/README.md`
 
 See `PROJECT_BRIEF.md` for full project context.

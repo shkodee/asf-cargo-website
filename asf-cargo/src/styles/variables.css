@@ -1,0 +1,23 @@
+/* ===========================================================
+   ASF CARGO — design tokens
+   Display: Bebas Neue (poster/signage feel, echoes the badge logo)
+   Body:    Inter
+   Utility: IBM Plex Mono (dispatch-board / manifest feel)
+=========================================================== */
+
+:root {
+  --navy:        #0c1c34;
+  --navy-2:      #142c50;
+  --navy-3:      #1d3a68;
+  --red:         #c41230;
+  --red-dark:    #8c0d22;
+  --cream:       #f3efe6;
+  --white:       #ffffff;
+  --steel:       #5b6774;
+  --chrome:      #aeb8c2;
+  --ink:         #0a1220;
+
+  --max-w: 1180px;
+  --radius: 2px;
+  --ease: cubic-bezier(.2,.7,.2,1);
+}

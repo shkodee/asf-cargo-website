@@ -1,87 +1,3 @@
-/* ===========================================================
-   ASF CARGO — design tokens
-   Display: Bebas Neue (poster/signage feel, echoes the badge logo)
-   Body:    Inter
-   Utility: IBM Plex Mono (dispatch-board / manifest feel)
-=========================================================== */
-
-:root {
-  --navy:        #0c1c34;
-  --navy-2:      #142c50;
-  --navy-3:      #1d3a68;
-  --red:         #c41230;
-  --red-dark:    #8c0d22;
-  --cream:       #f3efe6;
-  --white:       #ffffff;
-  --steel:       #5b6774;
-  --chrome:      #aeb8c2;
-  --ink:         #0a1220;
-
-  --max-w: 1180px;
-  --radius: 2px;
-  --ease: cubic-bezier(.2,.7,.2,1);
-}
-
-* { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-
-body {
-  margin: 0;
-  background: var(--cream);
-  color: var(--ink);
-  font-family: 'Inter', -apple-system, sans-serif;
-  font-size: 16px;
-  line-height: 1.55;
-}
-
-h1, h2, h3, .display {
-  font-family: 'Bebas Neue', 'Inter', sans-serif;
-  letter-spacing: 0.02em;
-  line-height: 1.02;
-  margin: 0;
-  color: var(--navy);
-}
-
-h1 { font-size: clamp(2.8rem, 7vw, 5.4rem); }
-h2 { font-size: clamp(2rem, 4.2vw, 3.1rem); }
-h3 { font-size: clamp(1.3rem, 2.4vw, 1.7rem); }
-
-p { margin: 0 0 1em; color: var(--steel); max-width: 60ch; }
-
-a { color: inherit; text-decoration: none; }
-
-.mono {
-  font-family: 'IBM Plex Mono', monospace;
-  letter-spacing: 0.03em;
-}
-
-.eyebrow {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.72rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--red);
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-.eyebrow::before {
-  content: "";
-  width: 22px; height: 2px;
-  background: var(--red);
-  display: inline-block;
-}
-
-.wrap {
-  max-width: var(--max-w);
-  margin: 0 auto;
-  padding: 0 28px;
-}
-
-img { max-width: 100%; display: block; }
-
 /* Buttons */
 .btn {
   display: inline-flex;
@@ -114,50 +30,6 @@ img { max-width: 100%; display: block; }
 }
 .btn-outline-dark:hover { border-color: var(--navy); background: rgba(12,28,52,0.05); }
 .btn-block { width: 100%; justify-content: center; }
-
-/* ===== Header ===== */
-header.site {
-  position: sticky; top: 0; z-index: 50;
-  background: var(--navy);
-  border-bottom: 3px solid var(--red);
-}
-.nav {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 28px;
-  max-width: var(--max-w);
-  margin: 0 auto;
-}
-.brand { display: flex; align-items: center; gap: 12px; }
-.brand img { height: 72px; width: auto; }
-.brand-text { font-family: 'Bebas Neue', sans-serif; color: var(--white); font-size: 1.55rem; letter-spacing: 0.04em; line-height: 1; }
-.brand-text span { display: block; font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--chrome); letter-spacing: 0.15em; margin-top: 4px; }
-
-.nav-links { display: flex; align-items: center; gap: 30px; }
-.nav-links a {
-  color: var(--cream); font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase;
-  padding: 6px 0; border-bottom: 2px solid transparent;
-  transition: border-color .2s, color .2s;
-}
-.nav-links a:hover { border-color: var(--red); }
-.nav-phone { color: var(--white); font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; font-weight: 600; }
-.nav-cta { display: flex; align-items: center; gap: 18px; }
-
-.burger { display: none; background: none; border: none; color: var(--white); font-size: 1.6rem; cursor: pointer; }
-
-@media (max-width: 900px) {
-  .nav-links { position: fixed; inset: 68px 0 0 0; background: var(--navy); flex-direction: column;
-    padding: 30px 28px; gap: 22px; transform: translateX(100%); transition: transform .25s var(--ease); }
-  .nav-links.open { transform: translateX(0); }
-  .burger { display: block; }
-  .nav-phone { display: none; }
-}
-
-@media (max-width: 480px) {
-  .brand img { height: 56px; }
-  .brand-text { font-size: 1.25rem; }
-  .brand-text span { font-size: 0.56rem; }
-}
 
 /* ===== Hero ===== */
 .hero {
@@ -230,7 +102,6 @@ header.site {
   letter-spacing: 0.12em; text-transform: uppercase;
 }
 .board-head .dot { width: 8px; height: 8px; border-radius: 50%; background: #3ddc78; display: inline-block; margin-right: 8px; box-shadow: 0 0 8px #3ddc78; animation: pulse 1.8s infinite; }
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 
 .lane-row {
   display: grid; grid-template-columns: 40px 1fr 34px 1fr 110px; align-items: center;
@@ -299,19 +170,6 @@ header.site {
 @media (max-width: 900px) { .contact-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 560px) { .contact-grid { grid-template-columns: 1fr; } }
 
-/* ===== Footer ===== */
-footer.site {
-  background: var(--ink); color: var(--chrome); padding: 54px 0 26px;
-}
-.foot-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 40px; margin-bottom: 40px; }
-.foot-grid h4 { color: var(--white); font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 16px; }
-.foot-grid a { display: block; color: var(--chrome); font-size: 0.9rem; margin-bottom: 10px; transition: color .2s; }
-.foot-grid a:hover { color: var(--white); }
-.foot-brand { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
-.foot-brand img { height: 42px; }
-.foot-bottom { border-top: 1px solid rgba(255,255,255,0.1); padding-top: 22px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--steel); }
-@media (max-width: 760px) { .foot-grid { grid-template-columns: 1fr; } }
-
 /* ===== Form ===== */
 .form-wrap {
   background: var(--white); border: 1px solid rgba(12,28,52,0.1);
@@ -357,63 +215,3 @@ footer.site {
 }
 .page-hero h1 { color: var(--white); font-size: clamp(2.2rem, 5vw, 3.4rem); }
 .page-hero p { color: var(--chrome); margin-top: 12px; }
-
-/* ===== Scroll progress bar ===== */
-.scroll-progress {
-  position: fixed; top: 0; left: 0; height: 3px; width: 0%;
-  background: linear-gradient(90deg, var(--red), var(--red-dark));
-  z-index: 100;
-  transition: width .1s linear;
-}
-
-/* ===== Header scroll state ===== */
-header.site { transition: box-shadow .25s var(--ease); }
-header.site.scrolled { box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
-
-/* ===== Load-in animation (hero / page-hero) ===== */
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(22px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.hero-anim > * { opacity: 0; animation: fadeUp .8s var(--ease) forwards; }
-.hero-anim > *:nth-child(1) { animation-delay: .05s; }
-.hero-anim > *:nth-child(2) { animation-delay: .15s; }
-.hero-anim > *:nth-child(3) { animation-delay: .25s; }
-.hero-anim > *:nth-child(4) { animation-delay: .35s; }
-.hero-anim > *:nth-child(5) { animation-delay: .45s; }
-
-@keyframes fadeInImg { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: none; } }
-.hero-art { animation: fadeInImg .9s var(--ease) .3s both; }
-
-/* ===== Scroll-reveal ===== */
-.reveal { opacity: 1; transform: none; }
-.js-anim .reveal {
-  opacity: 0; transform: translateY(28px);
-  transition: opacity .7s var(--ease), transform .7s var(--ease);
-  transition-delay: var(--d, 0s);
-}
-.js-anim .reveal.in-view { opacity: 1; transform: none; }
-
-.pay-grid > .reveal:nth-child(2), .equip-grid > .reveal:nth-child(2) { --d: .08s; }
-.pay-grid > .reveal:nth-child(3), .equip-grid > .reveal:nth-child(3) { --d: .16s; }
-.contact-grid > .reveal:nth-child(2) { --d: .06s; }
-.contact-grid > .reveal:nth-child(3) { --d: .12s; }
-.contact-grid > .reveal:nth-child(4) { --d: .18s; }
-.check-list > .reveal:nth-child(2) { --d: .08s; }
-.check-list > .reveal:nth-child(3) { --d: .16s; }
-.check-list > .reveal:nth-child(4) { --d: .24s; }
-.board .lane-row.reveal:nth-child(2) { --d: .05s; }
-.board .lane-row.reveal:nth-child(3) { --d: .1s; }
-.board .lane-row.reveal:nth-child(4) { --d: .15s; }
-.board .lane-row.reveal:nth-child(5) { --d: .2s; }
-.board .lane-row.reveal:nth-child(6) { --d: .25s; }
-.board .lane-row.reveal:nth-child(7) { --d: .3s; }
-.board .lane-row.reveal:nth-child(8) { --d: .35s; }
-.board .lane-row.reveal:nth-child(9) { --d: .4s; }
-
-@media (prefers-reduced-motion: reduce) {
-  .hero-anim > * { animation: none; opacity: 1; transform: none; }
-  .hero-art { animation: none; }
-  .js-anim .reveal { transition: none; opacity: 1; transform: none; }
-  html { scroll-behavior: auto; }
-}
