@@ -194,6 +194,15 @@
   outline: 2px solid var(--red); outline-offset: 1px; background: var(--white);
 }
 .field textarea { resize: vertical; min-height: 100px; }
+.field.invalid input, .field.invalid select, .field.invalid textarea {
+  border-color: var(--red); background: #fdeaea;
+}
+.field.invalid input:focus, .field.invalid select:focus, .field.invalid textarea:focus {
+  outline-color: var(--red-dark);
+}
+.field-error {
+  color: var(--red-dark); font-size: 0.78rem; margin: 6px 0 0; font-family: 'IBM Plex Mono', monospace;
+}
 .radio-group { display: flex; gap: 10px; flex-wrap: wrap; }
 .radio-pill {
   border: 1px solid rgba(12,28,52,0.25); padding: 10px 16px; border-radius: 30px;

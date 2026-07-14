@@ -20,20 +20,31 @@ const initialForm: ApplicationPayload = {
   coDriverFirstName: '',
   coDriverLastName: '',
   coDriverPhone: '',
+  coDriverEmail: '',
+  coDriverCity: '',
   coDriverCdlNumber: '',
   coDriverCdlState: '',
   coDriverExperience: '',
 };
 
 type Status = { type: 'ok' | 'err'; message: string } | null;
+type Errors = Partial<Record<keyof ApplicationPayload, string>>;
+
+const REQUIRED_FIELDS: { key: keyof ApplicationPayload; label: string }[] = [
+  { key: 'firstName', label: 'First name' },
+  { key: 'lastName', label: 'Last name' },
+  { key: 'phone', label: 'Phone' },
+];
 
 export default function ApplicationForm() {
   const [form, setForm] = useState<ApplicationPayload>(initialForm);
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<Status>(null);
+  const [errors, setErrors] = useState<Errors>({});
 
   function update<K extends keyof ApplicationPayload>(key: K, value: ApplicationPayload[K]) {
     setForm((f) => ({ ...f, [key]: value }));
+    setErrors((e) => (e[key] ? { ...e, [key]: undefined } : e));
   }
 
   function updatePosition(value: string) {
@@ -45,6 +56,8 @@ export default function ApplicationForm() {
       coDriverFirstName: value === 'Team Driver' ? f.coDriverFirstName : '',
       coDriverLastName: value === 'Team Driver' ? f.coDriverLastName : '',
       coDriverPhone: value === 'Team Driver' ? f.coDriverPhone : '',
+      coDriverEmail: value === 'Team Driver' ? f.coDriverEmail : '',
+      coDriverCity: value === 'Team Driver' ? f.coDriverCity : '',
       coDriverCdlNumber: value === 'Team Driver' ? f.coDriverCdlNumber : '',
       coDriverCdlState: value === 'Team Driver' ? f.coDriverCdlState : '',
       coDriverExperience: value === 'Team Driver' ? f.coDriverExperience : '',
@@ -59,18 +72,39 @@ export default function ApplicationForm() {
       coDriverFirstName: value === coDriverOptions[0] ? f.coDriverFirstName : '',
       coDriverLastName: value === coDriverOptions[0] ? f.coDriverLastName : '',
       coDriverPhone: value === coDriverOptions[0] ? f.coDriverPhone : '',
+      coDriverEmail: value === coDriverOptions[0] ? f.coDriverEmail : '',
+      coDriverCity: value === coDriverOptions[0] ? f.coDriverCity : '',
       coDriverCdlNumber: value === coDriverOptions[0] ? f.coDriverCdlNumber : '',
       coDriverCdlState: value === coDriverOptions[0] ? f.coDriverCdlState : '',
       coDriverExperience: value === coDriverOptions[0] ? f.coDriverExperience : '',
     }));
   }
 
+  function validate(): Errors {
+    const next: Errors = {};
+    for (const { key, label } of REQUIRED_FIELDS) {
+      if (!form[key].trim()) next[key] = `${label} is required.`;
+    }
+    return next;
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    const validationErrors = validate();
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
+      setStatus({ type: 'err', message: 'Please fix the highlighted fields below.' });
+      const firstInvalidKey = REQUIRED_FIELDS.find((f) => validationErrors[f.key])?.key;
+      if (firstInvalidKey) {
+        document.getElementById(firstInvalidKey)?.focus();
+      }
+      return;
+    }
     setSubmitting(true);
     try {
       await submitApplication(form);
       setForm(initialForm);
+      setErrors({});
       setStatus({ type: 'ok', message: "Application received — we'll be in touch soon. Thank you!" });
     } catch {
       setStatus({
@@ -85,39 +119,45 @@ export default function ApplicationForm() {
   return (
     <Reveal as="form" className="form-wrap" id="applyForm" onSubmit={handleSubmit}>
         <div className="form-row">
-          <div className="field">
+          <div className={`field${errors.firstName ? ' invalid' : ''}`}>
             <label htmlFor="firstName">First name</label>
             <input
               type="text"
               id="firstName"
               required
+              aria-invalid={!!errors.firstName}
               value={form.firstName}
               onChange={(e) => update('firstName', e.target.value)}
             />
+            {errors.firstName && <p className="field-error">{errors.firstName}</p>}
           </div>
-          <div className="field">
+          <div className={`field${errors.lastName ? ' invalid' : ''}`}>
             <label htmlFor="lastName">Last name</label>
             <input
               type="text"
               id="lastName"
               required
+              aria-invalid={!!errors.lastName}
               value={form.lastName}
               onChange={(e) => update('lastName', e.target.value)}
             />
+            {errors.lastName && <p className="field-error">{errors.lastName}</p>}
           </div>
         </div>
 
         <div className="form-row">
-          <div className="field">
+          <div className={`field${errors.phone ? ' invalid' : ''}`}>
             <label htmlFor="phone">Phone</label>
             <input
               type="tel"
               id="phone"
               placeholder="(555) 555-5555"
               required
+              aria-invalid={!!errors.phone}
               value={form.phone}
               onChange={(e) => update('phone', e.target.value)}
             />
+            {errors.phone && <p className="field-error">{errors.phone}</p>}
           </div>
           <div className="field">
             <label htmlFor="email">Email</label>
@@ -270,6 +310,28 @@ export default function ApplicationForm() {
                     <option key={opt} value={opt}>{opt}</option>
                   ))}
                 </select>
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="field">
+                <label htmlFor="coDriverEmail">Co-driver email</label>
+                <input
+                  type="email"
+                  id="coDriverEmail"
+                  placeholder="you@example.com"
+                  value={form.coDriverEmail}
+                  onChange={(e) => update('coDriverEmail', e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="coDriverCity">Co-driver current city / state</label>
+                <input
+                  type="text"
+                  id="coDriverCity"
+                  placeholder="e.g. Memphis, TN"
+                  value={form.coDriverCity}
+                  onChange={(e) => update('coDriverCity', e.target.value)}
+                />
               </div>
             </div>
             <div className="form-row">

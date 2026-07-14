@@ -13,6 +13,8 @@ export interface ApplicationPayload {
   coDriverFirstName: string;
   coDriverLastName: string;
   coDriverPhone: string;
+  coDriverEmail: string;
+  coDriverCity: string;
   coDriverCdlNumber: string;
   coDriverCdlState: string;
   coDriverExperience: string;

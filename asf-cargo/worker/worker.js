@@ -76,6 +76,8 @@ function buildSummary(d) {
       lines.push(
         `  Name: ${d.coDriverFirstName || ""} ${d.coDriverLastName || ""}`,
         `  Phone: ${d.coDriverPhone || "-"}`,
+        `  Email: ${d.coDriverEmail || "-"}`,
+        `  Location: ${d.coDriverCity || "-"}`,
         `  CDL #: ${d.coDriverCdlNumber || "-"} (${d.coDriverCdlState || "-"})`,
         `  Experience: ${d.coDriverExperience || "-"}`
       );
