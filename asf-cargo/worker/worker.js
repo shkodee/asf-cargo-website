@@ -45,6 +45,9 @@ export default {
     ]);
 
     const failed = results.filter(r => r.status === "rejected");
+    for (const f of failed) {
+      console.error("Delivery failed:", f.reason?.message || f.reason);
+    }
     if (failed.length === results.length) {
       // both failed
       return new Response("Failed to deliver application", { status: 502, headers: corsHeaders });

@@ -19,18 +19,36 @@ one time.
 3. Grab your **API key**.
 
 ## 3. Deploy the Worker (5–8 min)
+
+**Preferred: via CLI, from this folder** (`asf-cargo/worker/` — it has its own
+`wrangler.jsonc`, deliberately separate from the site's config one level up so a deploy
+here never picks up the site's `dist/` assets):
+```
+npx wrangler login      # one-time browser auth
+npx wrangler deploy     # ships worker.js as-is
+```
+`wrangler deploy` never touches secrets that already exist — but any **plain env var**
+(`vars` in `wrangler.jsonc`, not a secret) *is* fully controlled by this file and will be
+**deleted** on deploy if it's not listed here. Always add new secrets with
+`wrangler secret put NAME`, never as a plain var, so this can't happen again.
+
+**Alternative: dashboard paste** (no CLI needed, but you must redo this by hand every time
+`worker.js` changes):
 1. Sign up free at https://dash.cloudflare.com (Workers is free).
 2. Click **Workers & Pages → Create → Create Worker**.
 3. Name it, e.g. `asf-cargo-relay`, then click **Deploy** (deploys a blank starter).
 4. Click **Edit code**, delete the sample code, and paste in the contents of `worker.js` from this folder.
 5. Click **Save and Deploy**.
-6. Go to **Settings → Variables and Secrets** on the Worker, and add these (mark as "Secret"):
-   - `TELEGRAM_BOT_TOKEN` — from step 1
-   - `TELEGRAM_CHAT_ID` — from step 1
-   - `RESEND_API_KEY` — from step 2 (skip if not using email)
-   - `EMAIL_FROM` — e.g. `applications@yourdomain.com` (skip if not using email)
-   - `EMAIL_TO` — the inbox you want applications sent to (skip if not using email)
-7. Note the Worker's URL — it looks like `https://asf-cargo-relay.yourname.workers.dev`.
+
+Either way, go to **Settings → Variables and Secrets** on the Worker, and add these
+(mark as "Secret", not plain variable):
+- `TELEGRAM_BOT_TOKEN` — from step 1
+- `TELEGRAM_CHAT_ID` — from step 1
+- `RESEND_API_KEY` — from step 2 (skip if not using email)
+- `EMAIL_FROM` — e.g. `applications@yourdomain.com` (skip if not using email)
+- `EMAIL_TO` — the inbox you want applications sent to (skip if not using email)
+
+Note the Worker's URL — it looks like `https://asf-cargo-relay.yourname.workers.dev`.
 
    > If you're skipping email, delete the `sendEmail(...)` line from the
    > `Promise.allSettled([...])` call in `worker.js` before deploying, so it doesn't
