@@ -173,6 +173,65 @@ export default function ApplicationForm() {
           </div>
         )}
 
+        <div className="form-row">
+          <div className="field">
+            <label htmlFor="cdlNumber">CDL number</label>
+            <input
+              type="text"
+              id="cdlNumber"
+              value={form.cdlNumber}
+              onChange={(e) => update('cdlNumber', e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="cdlState">CDL issuing state</label>
+            <input
+              type="text"
+              id="cdlState"
+              placeholder="e.g. VA"
+              value={form.cdlState}
+              onChange={(e) => update('cdlState', e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="form-row">
+          <div className="field">
+            <label htmlFor="experience">Years of driving experience</label>
+            <select
+              id="experience"
+              value={form.experience}
+              onChange={(e) => update('experience', e.target.value)}
+            >
+              {experienceOptions.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="city">Current city / state</label>
+            <input
+              type="text"
+              id="city"
+              placeholder="e.g. Memphis, TN"
+              value={form.city}
+              onChange={(e) => update('city', e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="form-row single">
+          <div className="field">
+            <label htmlFor="message">Anything we should know?</label>
+            <textarea
+              id="message"
+              placeholder="Preferred start date, questions, driving partner's name if applying as a team, etc."
+              value={form.message}
+              onChange={(e) => update('message', e.target.value)}
+            />
+          </div>
+        </div>
+
         {form.hasCoDriver === coDriverOptions[0] && (
           <>
             <div className="form-row single">
@@ -248,65 +307,6 @@ export default function ApplicationForm() {
             </div>
           </>
         )}
-
-        <div className="form-row">
-          <div className="field">
-            <label htmlFor="cdlNumber">CDL number</label>
-            <input
-              type="text"
-              id="cdlNumber"
-              value={form.cdlNumber}
-              onChange={(e) => update('cdlNumber', e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="cdlState">CDL issuing state</label>
-            <input
-              type="text"
-              id="cdlState"
-              placeholder="e.g. VA"
-              value={form.cdlState}
-              onChange={(e) => update('cdlState', e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="form-row">
-          <div className="field">
-            <label htmlFor="experience">Years of driving experience</label>
-            <select
-              id="experience"
-              value={form.experience}
-              onChange={(e) => update('experience', e.target.value)}
-            >
-              {experienceOptions.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="city">Current city / state</label>
-            <input
-              type="text"
-              id="city"
-              placeholder="e.g. Memphis, TN"
-              value={form.city}
-              onChange={(e) => update('city', e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="form-row single">
-          <div className="field">
-            <label htmlFor="message">Anything we should know?</label>
-            <textarea
-              id="message"
-              placeholder="Preferred start date, questions, driving partner's name if applying as a team, etc."
-              value={form.message}
-              onChange={(e) => update('message', e.target.value)}
-            />
-          </div>
-        </div>
 
         <button type="submit" className="btn btn-primary btn-block" disabled={submitting}>
           {submitting ? 'Submitting...' : 'Submit Application'}
