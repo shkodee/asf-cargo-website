@@ -8,9 +8,9 @@ import type {
 
 export const company = {
   name: 'ASF Cargo LLC',
-  officePhone: '(412) 588-1575',
+  officePhone: '+1 (412) 588-1575',
   officePhoneHref: 'tel:14125881575',
-  dispatchPhone: '(412) 588-1683',
+  dispatchPhone: '+1 (412) 588-1683',
   dispatchPhoneHref: 'tel:14125881683',
   address1: '5850 Cameron Run Terrace',
   address2: 'Alexandria, VA 22303',

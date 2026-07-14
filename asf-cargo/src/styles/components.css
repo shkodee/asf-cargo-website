@@ -56,7 +56,7 @@
 .hero-badge { font-family: 'IBM Plex Mono', monospace; color: var(--chrome); font-size: 0.75rem; }
 .hero-badge b { display: block; color: var(--white); font-family: 'Bebas Neue', sans-serif; font-size: 1.7rem; letter-spacing: 0.02em; }
 .hero-art { position: relative; }
-.hero-art img { border-radius: 6px; box-shadow: 0 30px 70px rgba(0,0,0,0.45); }
+.hero-art img { filter: drop-shadow(0 22px 34px rgba(0,0,0,0.5)); }
 
 @media (max-width: 900px) {
   .hero-grid { grid-template-columns: 1fr; }
