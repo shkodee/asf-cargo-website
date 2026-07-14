@@ -151,28 +151,6 @@ export default function ApplicationForm() {
           </div>
         </div>
 
-        {form.position === 'Team Driver' && (
-          <div className="form-row single">
-            <div className="field">
-              <label>Do you have a co-driver?</label>
-              <div className="radio-group">
-                {coDriverOptions.map((opt) => (
-                  <label className="radio-pill" key={opt}>
-                    <input
-                      type="radio"
-                      name="hasCoDriver"
-                      value={opt}
-                      checked={form.hasCoDriver === opt}
-                      onChange={() => updateHasCoDriver(opt)}
-                    />
-                    {opt}
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
         <div className="form-row">
           <div className="field">
             <label htmlFor="cdlNumber">CDL number</label>
@@ -219,6 +197,28 @@ export default function ApplicationForm() {
             />
           </div>
         </div>
+
+        {form.position === 'Team Driver' && (
+          <div className="form-row single">
+            <div className="field">
+              <label>Do you have a co-driver?</label>
+              <div className="radio-group">
+                {coDriverOptions.map((opt) => (
+                  <label className="radio-pill" key={opt}>
+                    <input
+                      type="radio"
+                      name="hasCoDriver"
+                      value={opt}
+                      checked={form.hasCoDriver === opt}
+                      onChange={() => updateHasCoDriver(opt)}
+                    />
+                    {opt}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {form.hasCoDriver === coDriverOptions[0] && (
           <>
