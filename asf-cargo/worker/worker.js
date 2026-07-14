@@ -8,11 +8,18 @@
  * for the 10-minute setup walkthrough.
  */
 
+const ALLOWED_ORIGINS = [
+  "https://asfcargollc.com",
+  "https://www.asfcargollc.com",
+  "https://asf-cargo-website.afzaljon0411.workers.dev",
+];
+
 export default {
   async fetch(request, env) {
-    // CORS headers — allows your site to call this Worker from the browser
+    // CORS headers — only the site's own origins may call this Worker from a browser
+    const origin = request.headers.get("Origin");
     const corsHeaders = {
-      "Access-Control-Allow-Origin": "*", // tighten to your real domain once live, e.g. "https://asfcargo.com"
+      "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
       "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
     };
