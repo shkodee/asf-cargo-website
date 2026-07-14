@@ -5,6 +5,10 @@ A recruiting/informational website for a trucking company, built to attract CDL-
 (solo and team) and take applications online. Static HTML/CSS/JS — no backend framework,
 no build step. Reference sites used for inspiration: summitttrucking.com and eosolutionsinc.com.
 
+**Live at:** https://asf-cargo-website.afzaljon0411.workers.dev (Cloudflare Workers static assets,
+auto-deploys from the `main` branch of https://github.com/shkodee/asf-cargo-website on every push).
+No custom domain attached yet.
+
 ## Company facts (use exactly as given — do not invent numbers/claims)
 - **Name:** ASF Cargo LLC
 - **Address:** 5850 Cameron Run Terrace, Alexandria, VA 22303
@@ -37,17 +41,19 @@ no build step. Reference sites used for inspiration: summitttrucking.com and eos
 ## File structure
 ```
 asf-cargo/
-├── index.html          # homepage: hero, pay cards, lanes board, equipment, requirements, CTA
+├── index.html          # homepage: hero, pay cards, lanes board, equipment, requirements, contact, CTA
 ├── apply.html           # driver application form
-├── contact.html          # contact info page
+├── wrangler.jsonc        # Cloudflare Workers static-assets deploy config
 ├── assets/
 │   ├── style.css         # all design tokens + component styles
-│   ├── script.js         # nav toggle, footer year, form submit logic
+│   ├── script.js         # nav toggle, footer year, form submit logic, scroll animations
 │   └── logo.png
 └── worker/
     ├── worker.js          # Cloudflare Worker: relays form POST → Telegram + Resend email
     └── README.md          # step-by-step deploy guide for the worker
 ```
+
+Contact info lives in a `#contact` section at the bottom of the homepage (not a separate page).
 
 ## How the application form works
 `apply.html` POSTs JSON to a URL defined in `assets/script.js` as `APPLICATION_ENDPOINT`.
@@ -69,9 +75,8 @@ so `sendEmail()` just fails silently via `Promise.allSettled` until Resend env v
 - [ ] Add Resend email (`RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_TO` as Worker secrets) — no code
       change needed, `worker.js` already calls `sendEmail()`, it's just inactive until these
       three secrets are set in the Cloudflare dashboard
-- [ ] Host the static site (index.html/apply.html/contact.html + assets/) — decided against
-      Railway for this (better suited to apps needing a running server process); leaning
-      toward Cloudflare Pages since it's free, same account, and needs no build step
+- [ ] Buy a domain — `asfcargo.com` was taken; `asfcargollc.com` was confirmed available and is
+      the pick, not yet purchased
 - [ ] Driver testimonials — none provided yet, don't fabricate; add once client sends real ones
 - [ ] Equipment photos — currently text-only equipment cards, no truck photos yet
 - [ ] Flatbed section — currently marked "Coming Soon"; flip to active once client confirms
