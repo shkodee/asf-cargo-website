@@ -5,60 +5,98 @@
 > and pull items into a git commit message when done rather than leaving this stale.
 
 ## 🔴 Do first
-- [ ] **Re-paste `worker/worker.js` into Cloudflare's inline editor for `asf-cargo-relay`.**
-      Confirmed broken by a live test (2026-07-14): a Team Driver submission with full co-driver
-      info produced a Telegram message with *no* co-driver section at all — proves the deployed
-      Worker still has the old `buildSummary()`. Code is already correct in the repo; this is a
-      manual paste-and-deploy step in the Cloudflare dashboard, not a code fix. See
-      `PROJECT_BRIEF.md` → "Co-driver feature" for the exact steps.
+*(empty — both items from the last session shipped this session, see below)*
 
 ## 🐛 Bugs
-- [ ] **Apply form: no visible validation on failed submit.** Required fields (first/last name,
-      phone) don't turn red or show an error when the user hits Submit with them empty — currently
-      relies entirely on native HTML5 `required` behavior, which is inconsistent/easy to miss.
-      Add visible red border + message on invalid fields.
-- [ ] **Co-driver section is missing an email field.** Primary applicant has one, co-driver
-      section doesn't — add `coDriverEmail` (mirror the primary `email` field: optional, not
-      required).
-- [ ] **Co-driver section is missing a current city/state field.** Primary applicant has one
-      (`city`), co-driver section doesn't — add `coDriverCity` (mirror the primary field).
+- [x] **Apply form: no visible validation on failed submit.** Fixed 2026-07-14 — `firstName`,
+      `lastName`, `phone` now get a red border + inline error message on failed submit, clearing
+      as soon as the applicant fixes that field. See `ApplicationForm.tsx`'s `validate()`/`errors`
+      state and the `.field.invalid`/`.field-error` CSS rules.
+- [x] **Co-driver section is missing an email field.** Fixed 2026-07-14 — added `coDriverEmail`
+      (optional, mirrors primary `email`). Included in `worker.js`'s Telegram summary.
+- [x] **Co-driver section is missing a current city/state field.** Fixed 2026-07-14 — added
+      `coDriverCity` (mirrors primary `city`). Included in `worker.js`'s Telegram summary.
+- [x] **`worker/worker.js` re-paste to `asf-cargo-relay`.** Fixed 2026-07-15 — redeployed via
+      `wrangler deploy` from `asf-cargo/worker/` (new dedicated `wrangler.jsonc` there, see
+      PROJECT_BRIEF). Verified end-to-end with a live co-driver test submission that landed in
+      Telegram with the full co-driver section. **Note for future deploys:** this same deploy
+      briefly wiped the `TELEGRAM_CHAT_ID` variable because it had been stored as a plain
+      dashboard "variable" rather than a "secret" — plain vars are fully owned by whatever
+      `wrangler deploy` last declared, so any not listed get deleted. It's now stored as a proper
+      secret, which isn't affected by this. Always use `wrangler secret put NAME`, never a plain
+      var, for anything that must survive a deploy.
+
+## ✅ Infrastructure (shipped 2026-07-15)
+- [x] **Attach `asfcargollc.com` to the `asf-cargo-website` Worker.** Done via `wrangler deploy`
+      with `custom_domain: true` routes in `asf-cargo/wrangler.jsonc` for both the apex and `www`.
+      Both resolve and serve the site; `workers.dev` URL still works too (explicitly pinned with
+      `workers_dev: true` so a future deploy can't silently disable it again).
+- [x] **CORS lock-down in `worker.js`.** `Access-Control-Allow-Origin: "*"` replaced with an
+      allow-list (`asfcargollc.com`, `www.asfcargollc.com`, the `workers.dev` URL) that echoes
+      back only when the request's `Origin` matches. Verified: allowed origins get the header,
+      arbitrary origins (e.g. `evil.com`) get refused.
+- [x] **Honeypot antispam field.** Hidden `website` field in the apply form — real users never
+      see it (positioned off-screen, not `display:none`, so it still fools bots that check
+      computed style). Client-side pretends success if filled; `worker.js` also checks
+      server-side (so a bot posting directly to the relay endpoint, bypassing the page entirely,
+      is still caught) and returns a fake `{"ok":true}` without touching Telegram/email.
+- [x] **Searchable dropdown for "Current city / state".** Lightweight version per the original
+      note — a `<datalist>` of the ~185 largest US cities (`usCitySuggestions` in
+      `src/data/content.ts`), wired to both the primary and co-driver city fields. Still free-text,
+      just suggests as you type.
+- [x] **Google Jobs structured data.** `JobPosting` JSON-LD (two entries: solo driver, team
+      driver) added directly to `index.html`'s `<head>` — static, not React-rendered, so it's
+      present even before JS runs. Uses only verified facts from this brief (pay, requirements,
+      company address as `jobLocation`). **Maintenance note:** `datePosted` is a fixed date
+      (2026-07-15); Google eventually deprioritizes stale postings, so bump it periodically (or
+      add `validThrough` once there's an actual application deadline).
+- [x] **Open Graph / Twitter Card meta tags.** Added to both `index.html` and `apply.html`, using
+      the existing `logo.png` as the share image (not ideal og:image aspect ratio — a proper
+      1200×630 image would look better if the client ever supplies one, but this is a real
+      improvement over no preview at all).
+- [x] **Custom 404 page.** Added as a third Vite multi-page entry (`404.html` →
+      `src/notfound-main.tsx` → `src/pages/NotFoundPage.tsx`), reusing `SiteLayout` so the
+      header/footer match. `wrangler.jsonc`'s existing `not_found_handling: "404-page"` now has
+      an actual page to serve. Verified live at `https://asfcargollc.com/<bad-url>`.
 
 ## 🆕 Features to build (no client input needed)
-- [ ] **Antispam protection on the application form.** Currently nothing stops bot submissions
-      besides the relay Worker's basic "firstName + phone present" check. Add a honeypot field
-      (hidden input bots fill in but humans never see/touch) at minimum; consider a submission
-      rate-limit in the Worker if spam becomes a real problem.
-- [ ] **CDL photo / document upload on the form.** Already flagged as a "someday" idea before
-      this session — needs file storage (Cloudflare R2 is the natural fit) and changes to both
-      `ApplicationForm.tsx` (file input, multipart or base64 upload) and `worker/worker.js`
+- [ ] **Cloudflare Web Analytics.** Needs a beacon token that only exists after enabling it in
+      the dashboard (Analytics & Logs → Web Analytics → Add Site) — there's no CLI/API path to
+      generate this via `wrangler`, confirmed 2026-07-15. Once you have the token, it's a single
+      `<script>` tag drop into both `index.html` and `apply.html`'s `<head>` — tell me the token
+      and I'll wire it in.
+- [ ] **CDL photo / document upload on the form.** Deliberately skipped this session — bigger
+      scope than the rest of the backlog, needs a Cloudflare R2 bucket (new infra) plus changes to
+      both `ApplicationForm.tsx` (file input, multipart or base64 upload) and `worker/worker.js`
       (accept + store + forward the file, probably as a link in the Telegram message rather than
-      inlining the image).
-- [ ] **Searchable/typeable dropdown for "Current city / state".** Currently a plain free-text
-      input — replace with a combobox (type-to-filter, e.g. a simple `<datalist>` for a lightweight
-      version, or a proper autocomplete component if a full US city/state dataset is wanted).
-      Applies to both the primary applicant's city field and the new `coDriverCity` field above.
-- [ ] **"Security of all information" — needs scoping.** Too vague as stated to act on directly;
-      next conversation should nail down what's actually being asked (data encryption in transit —
-      already HTTPS everywhere; data at rest — currently nothing is stored anywhere, submissions
-      just relay through to Telegram/email and aren't persisted; access control on the Telegram
-      group/email inbox — outside this codebase's control). Ask the user what specifically
-      prompted this before doing anything.
-- [ ] **Google Jobs structured data** (`JobPosting` JSON-LD schema on the homepage/apply page).
-      Highest-ROI SEO item — lets driver postings surface directly in Google Search / Google for
-      Jobs, free organic applicant traffic. No client content needed.
-- [ ] **Open Graph / Twitter Card meta tags.** Shared links (Facebook, Telegram, Twitter/X)
-      currently show no preview image/title. Quick, no client content needed.
-- [ ] **Cloudflare Web Analytics.** Free, privacy-friendly, one script tag. Would show the real
-      conversion funnel: homepage → apply page → actual submission.
-- [ ] **Custom 404 page** matching the site design. `wrangler.jsonc` already references a
-      `"404-page"` handler but no actual 404 page exists yet — bad URLs currently hit some
-      Cloudflare default instead.
+      inlining the image). Revisit as its own task when there's time to set up R2.
+
+## 🔒 Security posture (scoped 2026-07-15, not a to-do — documenting the answer)
+Original item was too vague to act on; client confirmed the concern was **data in transit and at
+rest**, not access control. Current state:
+- **In transit:** HTTPS everywhere — the site (`asfcargollc.com`), the relay Worker
+  (`asf-cargo-relay...workers.dev`), and the Telegram Bot API calls are all TLS. Nothing is sent
+  in the clear.
+- **At rest:** nothing is stored anywhere in this codebase's infrastructure. Application
+  submissions flow straight through the relay Worker to Telegram (and email, once Resend is set
+  up) and are never written to a database, file, or log that this project controls. Cloudflare
+  Worker secrets (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) are encrypted at rest by Cloudflare
+  and never appear in the git repo.
+- **Out of scope for this codebase:** who has access to the Telegram group or the eventual email
+  inbox — that's account/membership management on Telegram's and the email provider's side, not
+  something the website code controls.
+- This session also reduced attack surface directly: CORS lock-down (arbitrary sites can no
+  longer call the relay) and the honeypot (cuts down automated junk submissions reaching Telegram
+  at all).
 
 ## 📋 Needs content/decisions from the client (tracked here + in PROJECT_BRIEF.md)
 - [ ] Driver testimonials — none provided, don't fabricate
 - [ ] Equipment photos — real truck photos to replace text-only cards
 - [ ] Benefits detail (health insurance, home time, bonuses) — not specified yet
 - [ ] Flatbed section — flip from "Coming Soon" to active once confirmed
-- [ ] Custom domain purchase (`asfcargollc.com`) — see PROJECT_BRIEF.md
-- [ ] CORS lock-down in `worker.js` — blocked on the domain above
+- [x] Custom domain purchase (`asfcargollc.com`) — bought via Cloudflare Registrar 2026-07-14
+- [x] Attach `asfcargollc.com` to the `asf-cargo-website` Worker — done 2026-07-15
+- [x] CORS lock-down in `worker.js` — done 2026-07-15
 - [ ] Resend email secrets — if email notifications alongside Telegram are wanted
+- [ ] Proper 1200×630 Open Graph share image — currently reusing the circular logo, works but
+      isn't the ideal aspect ratio for link previews

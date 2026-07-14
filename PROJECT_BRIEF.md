@@ -5,20 +5,29 @@
 > whole conversation history. Keep it current: whenever a decision is made or something ships,
 > update the relevant section here, not just in chat.
 
-## Current status (as of 2026-07-14, end of session)
-- ✅ Site is **live and auto-deploying**: https://asf-cargo-website.afzaljon0411.workers.dev
+## Current status (as of 2026-07-15, end of session)
+- ✅ Site is **live and auto-deploying**: https://asf-cargo-website.afzaljon0411.workers.dev, plus
+  the custom domain (see below) — all three URLs confirmed serving.
 - ✅ Rebuilt as **React + TypeScript + Vite** — Cloudflare Build command (`npm run build`) is
   confirmed working (multiple successful pushes deployed correctly after it was set).
-- ✅ Driver application form → Telegram relay is **working** (many test submissions confirmed
-  delivered, including through the React rebuild).
+- ✅ Driver application form → Telegram relay is **working**, including the co-driver section
+  (verified live 2026-07-15 after the relay worker was redeployed with current code).
 - ✅ Contact info lives in a homepage section (`#contact`), not a separate page.
 - ✅ Full responsive pass done across phone/tablet/laptop/desktop (see "Responsive fixes" below)
   — audited at 10 real device widths, zero horizontal-overflow issues remaining.
-- ✅ **New feature: co-driver info on the application form** — see its own section below.
-  **⚠️ Needs a manual step to fully work — see "Open items."**
-- ⏳ **Not done yet:** custom domain purchase, CORS lock-down (blocked on the domain), Resend
-  email, manual worker.js redeploy for co-driver Telegram output, and content items that need
-  client input (see "Open items" below).
+- ✅ **Co-driver info on the application form**, including email/city fields and visible
+  validation — see its own section below. Fully working end-to-end, verified live.
+- ✅ **Custom domain live**: `asfcargollc.com` and `www.asfcargollc.com` both attached to the
+  `asf-cargo-website` Worker and confirmed serving (2026-07-15) — see "Infrastructure & accounts".
+- ✅ **CORS locked down** on the relay Worker — only the site's own origins can call it now.
+- ✅ **Wrangler CLI is now authenticated on this machine** (`wrangler login` completed
+  2026-07-15) — both Workers can be deployed directly from the CLI going forward, no more
+  manual dashboard paste-and-deploy for `asf-cargo-relay`. See "Infrastructure & accounts".
+- ✅ **Antispam honeypot**, **city/state autocomplete**, **Google Jobs JSON-LD**, **OG/Twitter
+  tags**, and a **custom 404 page** all shipped this session — see TODO.md for details on each.
+- ⏳ **Not done yet:** Resend email, Cloudflare Web Analytics (needs a dashboard-generated token
+  — no CLI path for this), CDL photo upload (deliberately deferred, needs R2), and content items
+  that need client input (see "Open items" below).
 
 ## What this is
 A recruiting/informational website for a trucking company, built to attract CDL-A drivers
@@ -59,8 +68,24 @@ This project spans two separate Cloudflare Workers under one Cloudflare account
 | Purpose | Serves the React build | Receives form POST, forwards to Telegram/email |
 | Cloudflare Worker name | `asf-cargo-website` | `asf-cargo-relay` |
 | URL | https://asf-cargo-website.afzaljon0411.workers.dev | https://asf-cargo-relay.afzaljon0411.workers.dev |
-| Deploy method | Auto, via GitHub integration (push to `main`) | **Manual** (pasted into Cloudflare's inline code editor — not GitHub-connected) |
-| Config | `asf-cargo/wrangler.jsonc` (static assets from `./dist`, root dir `asf-cargo`, deploy command `npx wrangler deploy`, build command `npm run build`) | No wrangler config — deployed via Cloudflare dashboard's inline editor |
+| Deploy method | Auto, via GitHub integration (push to `main`) | **Via `wrangler deploy`** from `asf-cargo/worker/` (as of 2026-07-15 — dashboard paste still works as a fallback, see `worker/README.md`) |
+| Config | `asf-cargo/wrangler.jsonc` (static assets from `./dist`, root dir `asf-cargo`, deploy command `npx wrangler deploy`, build command `npm run build`, `workers_dev: true`, `routes` with `custom_domain: true` for the apex + `www`) | `asf-cargo/worker/wrangler.jsonc` (added 2026-07-15 — deliberately separate from the site's config one directory up, so a deploy from `worker/` never picks up the site's `dist/` assets by accident) |
+
+**Wrangler CLI is authenticated on this machine** (ran `wrangler login` 2026-07-15, browser OAuth
+flow). To redeploy either Worker from a fresh session: `cd` into `asf-cargo/` (site) or
+`asf-cargo/worker/` (relay) and run `npx wrangler deploy`. Run `npx wrangler deploy --dry-run`
+first if unsure — it shows a diff against the live config before anything changes.
+
+**⚠️ Lesson learned 2026-07-15, important for any future relay redeploy:** `wrangler deploy` is
+fully authoritative over plain **vars** declared (or not declared) in `wrangler.jsonc` — anything
+not listed there gets **deleted** from the live Worker on deploy, even if it was previously set
+via the dashboard. This bit us once: `TELEGRAM_CHAT_ID` had been added as a plain dashboard
+"variable" rather than a "secret," and the first CLI deploy of `worker.js` silently wiped it
+(caught immediately via `wrangler tail` + a live test, restored via `wrangler secret put`). It's
+now a proper secret, which `wrangler deploy` never touches regardless of what's in the config.
+**Always add new Worker config with `wrangler secret put NAME`, never as a plain dashboard
+variable**, unless it's genuinely non-sensitive and you're prepared for it to require explicit
+declaration in `wrangler.jsonc` forever after.
 
 **GitHub repo:** https://github.com/shkodee/asf-cargo-website (public, owner `shkodee`).
 Local repo root is `c:\asf-cargo-website` (one level above `asf-cargo/`, so it also contains this
@@ -74,10 +99,13 @@ directly themselves** (not just through an agent) — e.g. the "Replased logo" c
 Worker (Cloudflare dashboard → that Worker → Settings → Variables and Secrets) — not stored in
 any file in this repo, and not recoverable from here if lost (would need BotFather again).
 
-**Domain:** none yet. `asfcargo.com` is taken (registered elsewhere, Squarespace Domains).
-`asfcargollc.com` was confirmed available and is the intended pick — not purchased yet. Plan is
-to buy via Cloudflare Registrar (at-cost pricing, same dashboard, auto-configures DNS) so it can
-be attached to the `asf-cargo-website` Worker via that Worker's **Domains** tab once bought.
+**Domain:** ✅ **Purchased and attached** — `asfcargollc.com`, bought via Cloudflare Registrar on
+2026-07-14, attached to the `asf-cargo-website` Worker on 2026-07-15 via `routes` with
+`custom_domain: true` in `asf-cargo/wrangler.jsonc` (both apex and `www`). All three URLs
+confirmed live: `https://asfcargollc.com`, `https://www.asfcargollc.com`, and the original
+`https://asf-cargo-website.afzaljon0411.workers.dev`. (`www` took a few minutes to resolve after
+attaching — that's normal Cloudflare DNS/SSL provisioning lag, not a bug, if it recurs elsewhere.)
+CORS lock-down in `worker/worker.js` is also done — see TODO.md.
 
 ## Company facts (use exactly as given — do not invent numbers/claims)
 - **Name:** ASF Cargo LLC
@@ -112,7 +140,7 @@ be attached to the `asf-cargo-website` Worker via that Worker's **Domains** tab 
 - **Logo:** `public/logo.png` — circular badge, American flag + Kenworth-style truck + "ASF CARGO" wordmark, with a bold black rounded outline (flat-emblem style) and a genuinely transparent background (500×500 RGBA). **User replaced the logo file themselves** (pushed directly via git, commits "Replased logo") after an AI background-removal attempt on the old asset badly mangled it (stripped the wordmark and most of the flag circle) — that attempt was reverted; the current file is the user's own asset, not AI-generated. Displays cleanly on navy backgrounds (header/hero/footer) with no visible box, because unlike the old cropped-but-opaque version, this one has real alpha transparency.
 - **Motion:** scroll-reveal fade-up on section headings/cards/lane rows (`.reveal`/`.in-view` classes, driven by the `useScrollReveal` hook in `src/hooks/useScrollReveal.ts`, wrapped for convenience by `src/components/UI/Reveal.tsx`), hero content fades in on load (`.hero-anim`, pure CSS), header gains a shadow after scrolling, thin scroll-progress bar at the very top of the viewport. Hero logo shadow uses `filter: drop-shadow(...)` (shape-aware, follows alpha) rather than `box-shadow` (rectangular) — matters now that the logo has real transparency. All motion respects `prefers-reduced-motion`.
 
-## Responsive fixes (this session)
+## Responsive fixes (2026-07-14 session)
 Audited all pages at 10 real device widths (320/375/390/428 phones, 768/820 tablet portrait,
 1024 tablet landscape, 1280/1440/1920 laptop/desktop) — found and fixed real bugs, not
 hypothetical ones:
@@ -149,11 +177,14 @@ the confirmed final layout.
   applicant switches away from Team Driver or toggles the co-driver answer, so stale hidden data
   never gets submitted.
 - **`worker/worker.js`'s `buildSummary()` was updated** to include co-driver details in the
-  Telegram message when present. **This file is deployed manually, not via GitHub** — the update
-  was pushed to the repo but the user was told to re-paste the file into Cloudflare's inline
-  editor for `asf-cargo-relay` and **had not yet confirmed doing so** as of end of session. Check
-  this before assuming co-driver info actually reaches Telegram — if a co-driver test submission
-  doesn't show co-driver details in Telegram, this is why.
+  Telegram message when present, including `coDriverEmail` and `coDriverCity`. **Deployed and
+  verified live 2026-07-15** — a test submission with full co-driver info landed in Telegram
+  with the complete co-driver section. This worker is now deployable via `wrangler deploy` from
+  `asf-cargo/worker/` (see "Infrastructure & accounts"), not just manual dashboard paste.
+- **Form now has visible validation** (`ApplicationForm.tsx`): `firstName`, `lastName`, `phone`
+  show a red border + inline error message on failed submit instead of relying solely on native
+  HTML5 `required`. Co-driver block also gained `coDriverEmail`/`coDriverCity` fields, mirroring
+  the primary applicant's `email`/`city`.
 
 ## File structure
 ```
@@ -163,16 +194,17 @@ c:\asf-cargo-website\            # git repo root
 ├── README.md                     # short public-facing repo readme
 ├── .gitignore
 └── asf-cargo/                    # everything actually deployed as the site (Vite project root)
-    ├── index.html                 # Vite entry: homepage — div#root + script src="/src/main.tsx"
-    ├── apply.html                 # Vite entry: application form — div#root + script src="/src/apply-main.tsx"
+    ├── index.html                 # Vite entry: homepage — div#root + script src="/src/main.tsx"; also carries JobPosting JSON-LD + OG/Twitter tags
+    ├── apply.html                 # Vite entry: application form — div#root + script src="/src/apply-main.tsx"; also carries OG/Twitter tags
+    ├── 404.html                   # Vite entry: not-found page — div#root + script src="/src/notfound-main.tsx"
     ├── package.json / vite.config.ts / tsconfig*.json
     ├── wrangler.jsonc              # Cloudflare Workers static-assets config — assets.directory: "./dist"
     ├── public/
     │   └── logo.png                 # bordered/transparent badge, user-supplied, served at /logo.png
     ├── dist/                       # BUILD OUTPUT, gitignored — what actually gets deployed
     ├── src/
-    │   ├── main.tsx / apply-main.tsx   # entry points, one per HTML page
-    │   ├── pages/HomePage.tsx, ApplyPage.tsx
+    │   ├── main.tsx / apply-main.tsx / notfound-main.tsx   # entry points, one per HTML page
+    │   ├── pages/HomePage.tsx, ApplyPage.tsx, NotFoundPage.tsx
     │   ├── layouts/SiteLayout.tsx       # Header + ScrollProgressBar + children + Footer
     │   ├── components/
     │   │   ├── layout/                    # Header.tsx, Footer.tsx, ScrollProgressBar.tsx
@@ -184,9 +216,10 @@ c:\asf-cargo-website\            # git repo root
     │   ├── types/index.ts
     │   ├── data/content.ts               # ALL business copy lives here — single source of truth
     │   └── styles/                       # variables.css, base.css, animations.css, layout.css, components.css, index.css (imports all 5)
-    └── worker/                     # NOT part of the Vite build — separate Worker, deployed manually
-        ├── worker.js                 # Cloudflare Worker: relays form POST → Telegram + Resend email
-        └── README.md                 # step-by-step deploy guide for the worker
+    └── worker/                     # NOT part of the Vite build — separate Worker
+        ├── worker.js                 # Cloudflare Worker: relays form POST → Telegram + Resend email; honeypot check + CORS allow-list + delivery-failure logging live here
+        ├── wrangler.jsonc             # relay worker's own deploy config (added 2026-07-15) — keeps `wrangler deploy` here scoped to just worker.js
+        └── README.md                 # step-by-step deploy guide — CLI path (preferred) + dashboard fallback
 ```
 
 ## How the application form works
@@ -201,12 +234,22 @@ which POSTs JSON to a hardcoded `APPLICATION_ENDPOINT` constant
    `Promise.allSettled` until those three secrets are added in the Cloudflare dashboard. No code
    change needed to turn email on later.
 
+**Honeypot antispam (added 2026-07-15):** `ApplicationPayload.website` is a hidden field real
+users never see (off-screen positioned, not `display:none`, so bots checking computed style still
+fall for it). If it's non-empty, both the client (`ApplicationForm.tsx`) and the server
+(`worker.js`) pretend success without actually relaying to Telegram/email — don't be alarmed if a
+test submission with that field populated doesn't show up anywhere, that's correct behavior, not
+a bug.
+
 ## Open items / not yet built
 **See `TODO.md` for the full, actively-maintained backlog** (bugs, features, content needed from
-client). The single most urgent item, confirmed by a live test on 2026-07-14 (a co-driver
-submission produced a Telegram message with no co-driver section at all):
-- [ ] **Re-paste `worker/worker.js` into Cloudflare's inline editor for `asf-cargo-relay`** —
-      code is already correct in the repo, just not deployed to the manually-managed Worker yet.
+client). As of 2026-07-15, both previously-urgent items (relay worker redeploy, domain attach)
+are done and verified live. What's left:
+- [ ] Cloudflare Web Analytics — needs a dashboard-generated token, no CLI path for it.
+- [ ] CDL photo/document upload — deliberately deferred, needs an R2 bucket (new infra).
+- [ ] Resend email secrets, if email alongside Telegram is wanted.
+- [ ] Content-dependent items (testimonials, equipment photos, benefits detail, flatbed
+      activation, a proper 1200×630 OG image) — all need client input, see TODO.md.
 
 ## Guardrails for future work
 - Don't invent statistics, benefits, awards, or testimonials that weren't provided by the client.
@@ -226,3 +269,11 @@ submission produced a Telegram message with no co-driver section at all):
 - Before attempting any AI-based image editing on the logo again: it went badly once already
   (background remover stripped the wordmark). Get explicit confirmation before running automated
   tools on brand assets, and always preview the result before replacing the live file.
+- When redeploying either Worker via `wrangler deploy`, run `--dry-run` first and read the config
+  diff it prints — plain `vars` not declared in `wrangler.jsonc` get silently deleted from the
+  live Worker on deploy (secrets don't have this problem). This actually happened once, see
+  "Infrastructure & accounts" → the `TELEGRAM_CHAT_ID` incident.
+- `node`/`npm`/`npx` aren't on PATH in a fresh shell on this machine, even though Node is
+  installed at `C:\Program Files\nodejs`. Add it to PATH per-session
+  (PowerShell: `$env:Path += ";C:\Program Files\nodejs"`; Bash: `export PATH="$PATH:/c/Program Files/nodejs"`)
+  rather than assuming `node --version` will just work.
