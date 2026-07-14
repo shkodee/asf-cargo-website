@@ -11,8 +11,9 @@ export default function Hero() {
           <div className="eyebrow" style={{ color: '#ff6b7a' }}>Now hiring · Solo & Team</div>
           <h1>Keep the freight<br /><em>moving</em> with ASF.</h1>
           <p className="lede">
-            CDL-A driving jobs with power-only and dry van freight running the East Coast to
-            Midwest, every day of the week. No experience required — we train you right.
+            CDL-A driving jobs running power-only and dry van freight across the U.S. — steady
+            East Coast to Midwest round trips, every day of the week. No experience required —
+            we train you right.
           </p>
           <div className="hero-actions">
             <a href="/apply.html" className="btn btn-primary">Apply Now</a>
