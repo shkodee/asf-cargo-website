@@ -18,6 +18,8 @@ export interface ApplicationPayload {
   coDriverCdlNumber: string;
   coDriverCdlState: string;
   coDriverExperience: string;
+  /** Honeypot — must stay empty. Real users never see or fill this field. */
+  website: string;
 }
 
 export interface Lane {

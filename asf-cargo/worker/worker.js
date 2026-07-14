@@ -39,7 +39,15 @@ export default {
       return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
     }
 
-    // Basic honeypot / sanity check
+    // Honeypot: bots fill this hidden field, real users never see it. Pretend success
+    // instead of erroring, so scripts don't learn to retry without it.
+    if (data.website) {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (!data.firstName || !data.phone) {
       return new Response("Missing required fields", { status: 400, headers: corsHeaders });
     }

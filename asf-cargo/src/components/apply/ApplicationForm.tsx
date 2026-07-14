@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { experienceOptions, positionOptions, coDriverOptions, company } from '../../data/content';
+import { experienceOptions, positionOptions, coDriverOptions, company, usCitySuggestions } from '../../data/content';
 import { submitApplication } from '../../api/apply';
 import type { ApplicationPayload } from '../../types';
 import Reveal from '../UI/Reveal';
@@ -25,6 +25,7 @@ const initialForm: ApplicationPayload = {
   coDriverCdlNumber: '',
   coDriverCdlState: '',
   coDriverExperience: '',
+  website: '',
 };
 
 type Status = { type: 'ok' | 'err'; message: string } | null;
@@ -100,6 +101,13 @@ export default function ApplicationForm() {
       }
       return;
     }
+    if (form.website) {
+      // Honeypot tripped — pretend success without actually submitting.
+      setForm(initialForm);
+      setErrors({});
+      setStatus({ type: 'ok', message: "Application received — we'll be in touch soon. Thank you!" });
+      return;
+    }
     setSubmitting(true);
     try {
       await submitApplication(form);
@@ -118,6 +126,23 @@ export default function ApplicationForm() {
 
   return (
     <Reveal as="form" className="form-wrap" id="applyForm" onSubmit={handleSubmit}>
+        <datalist id="city-suggestions">
+          {usCitySuggestions.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+        <div className="honeypot-field" aria-hidden="true">
+          <label htmlFor="website">Leave this field blank</label>
+          <input
+            type="text"
+            id="website"
+            name="website"
+            tabIndex={-1}
+            autoComplete="off"
+            value={form.website}
+            onChange={(e) => update('website', e.target.value)}
+          />
+        </div>
         <div className="form-row">
           <div className={`field${errors.firstName ? ' invalid' : ''}`}>
             <label htmlFor="firstName">First name</label>
@@ -211,6 +236,7 @@ export default function ApplicationForm() {
             <input
               type="text"
               id="city"
+              list="city-suggestions"
               placeholder="e.g. Memphis, TN"
               value={form.city}
               onChange={(e) => update('city', e.target.value)}
@@ -328,6 +354,7 @@ export default function ApplicationForm() {
                 <input
                   type="text"
                   id="coDriverCity"
+                  list="city-suggestions"
                   placeholder="e.g. Memphis, TN"
                   value={form.coDriverCity}
                   onChange={(e) => update('coDriverCity', e.target.value)}

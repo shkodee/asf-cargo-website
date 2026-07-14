@@ -203,6 +203,9 @@
 .field-error {
   color: var(--red-dark); font-size: 0.78rem; margin: 6px 0 0; font-family: 'IBM Plex Mono', monospace;
 }
+.honeypot-field {
+  position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px; overflow: hidden;
+}
 .radio-group { display: flex; gap: 10px; flex-wrap: wrap; }
 .radio-pill {
   border: 1px solid rgba(12,28,52,0.25); padding: 10px 16px; border-radius: 30px;
