@@ -159,6 +159,7 @@ the confirmed final layout.
 ```
 c:\asf-cargo-website\            # git repo root
 ├── PROJECT_BRIEF.md              # this file
+├── TODO.md                       # bug/feature backlog — check here for what's actionable next
 ├── README.md                     # short public-facing repo readme
 ├── .gitignore
 └── asf-cargo/                    # everything actually deployed as the site (Vite project root)
@@ -201,20 +202,11 @@ which POSTs JSON to a hardcoded `APPLICATION_ENDPOINT` constant
    change needed to turn email on later.
 
 ## Open items / not yet built
-- [ ] **Re-paste `worker/worker.js` into Cloudflare's inline editor for `asf-cargo-relay`** so
-      co-driver info actually reaches Telegram — code is already updated in the repo, just not
-      deployed to the manually-managed Worker yet. First thing to check next session.
-- [ ] Buy `asfcargollc.com` (via Cloudflare Registrar, ~$9–10/yr) and attach it to the
-      `asf-cargo-website` Worker's Domains tab
-- [ ] Lock down CORS in `worker/worker.js` (`Access-Control-Allow-Origin: "*"` → the real domain)
-      once the domain above is live — currently anyone can call the relay from any site
-- [ ] Add Resend email secrets (see above) if email notifications are wanted alongside Telegram
-- [ ] Driver testimonials — none provided yet, don't fabricate; add once client sends real ones
-- [ ] Equipment photos — currently text-only equipment cards, no truck photos yet
-- [ ] Flatbed section — currently marked "Coming Soon"; flip to active once client confirms
-- [ ] Benefits detail (health insurance, home time, bonuses) — not specified yet, currently
-      omitted rather than guessed at
-- [ ] Resume/CDL photo upload on the application form — not built, was floated as a future idea
+**See `TODO.md` for the full, actively-maintained backlog** (bugs, features, content needed from
+client). The single most urgent item, confirmed by a live test on 2026-07-14 (a co-driver
+submission produced a Telegram message with no co-driver section at all):
+- [ ] **Re-paste `worker/worker.js` into Cloudflare's inline editor for `asf-cargo-relay`** —
+      code is already correct in the repo, just not deployed to the manually-managed Worker yet.
 
 ## Guardrails for future work
 - Don't invent statistics, benefits, awards, or testimonials that weren't provided by the client.
