@@ -131,26 +131,6 @@ export default function ApplicationForm() {
           </div>
         </div>
 
-        <div className="form-row single">
-          <div className="field">
-            <label>Position you&apos;re applying for</label>
-            <div className="radio-group">
-              {positionOptions.map((opt) => (
-                <label className="radio-pill" key={opt}>
-                  <input
-                    type="radio"
-                    name="position"
-                    value={opt}
-                    checked={form.position === opt}
-                    onChange={() => updatePosition(opt)}
-                  />
-                  {opt}
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
-
         <div className="form-row">
           <div className="field">
             <label htmlFor="cdlNumber">CDL number</label>
@@ -195,6 +175,26 @@ export default function ApplicationForm() {
               value={form.city}
               onChange={(e) => update('city', e.target.value)}
             />
+          </div>
+        </div>
+
+        <div className="form-row single">
+          <div className="field">
+            <label>Position you&apos;re applying for</label>
+            <div className="radio-group">
+              {positionOptions.map((opt) => (
+                <label className="radio-pill" key={opt}>
+                  <input
+                    type="radio"
+                    name="position"
+                    value={opt}
+                    checked={form.position === opt}
+                    onChange={() => updatePosition(opt)}
+                  />
+                  {opt}
+                </label>
+              ))}
+            </div>
           </div>
         </div>
 
