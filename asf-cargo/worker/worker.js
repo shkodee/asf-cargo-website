@@ -27,6 +27,13 @@ const ALLOWED_ORIGINS = [
   "https://asf-cargo-website.afzaljon0411.workers.dev",
 ];
 
+// CDL photo/document upload — deliberately conservative: small size cap
+// (these are phone photos of a license, not scans), and only the file types
+// a driver could plausibly submit. Enforced both client-side (ApplicationForm.tsx)
+// and here, since the client check is trivially bypassable.
+const CDL_MAX_BYTES = 8 * 1024 * 1024;
+const CDL_ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -109,7 +116,7 @@ async function handleGetLanes(request, env) {
   }));
   return new Response(JSON.stringify({ lanes: publicLanes }), {
     status: 200,
-    headers: { ...headers, "Content-Type": "application/json" },
+    headers: { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 }
 
@@ -140,11 +147,17 @@ async function handleApplicationForm(request, env) {
     return new Response("Too many requests — try again later.", { status: 429, headers: corsHeaders });
   }
 
-  let data;
+  let form;
   try {
-    data = await request.json();
+    form = await request.formData();
   } catch {
-    return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
+    return new Response("Invalid form data", { status: 400, headers: corsHeaders });
+  }
+
+  const data = {};
+  for (const [key, value] of form.entries()) {
+    if (key === "cdlFile") continue;
+    data[key] = value;
   }
 
   // Honeypot: bots fill this hidden field, real users never see it. Pretend success
@@ -160,12 +173,29 @@ async function handleApplicationForm(request, env) {
     return new Response("Missing required fields", { status: 400, headers: corsHeaders });
   }
 
-  const summary = buildSummary(data);
+  let cdlDocId = null;
+  const cdlFile = form.get("cdlFile");
+  if (cdlFile && typeof cdlFile === "object" && cdlFile.size > 0) {
+    if (cdlFile.size > CDL_MAX_BYTES) {
+      return new Response("CDL file is too large (8MB max).", { status: 400, headers: corsHeaders });
+    }
+    if (!CDL_ALLOWED_TYPES.includes(cdlFile.type)) {
+      return new Response("CDL file must be a JPEG/PNG/WEBP image or a PDF.", { status: 400, headers: corsHeaders });
+    }
+    try {
+      cdlDocId = await uploadCdlFile(env, cdlFile, data);
+    } catch (err) {
+      console.error("CDL upload failed:", err?.message || err);
+      return new Response("Failed to upload CDL file — try again.", { status: 502, headers: corsHeaders });
+    }
+  }
+
+  const summary = buildSummary(data, cdlDocId);
 
   await logApplication(env);
 
   const results = await Promise.allSettled([
-    sendTelegram(env, summary),
+    sendTelegram(env, summary, cdlDocId),
     sendEmail(env, summary, data),
   ]);
 
@@ -184,7 +214,7 @@ async function handleApplicationForm(request, env) {
   });
 }
 
-function buildSummary(d) {
+function buildSummary(d, cdlDocId) {
   const e = escapeHtml;
   const lines = [
     `🚛 NEW DRIVER APPLICATION`,
@@ -197,6 +227,10 @@ function buildSummary(d) {
     `Experience: ${e(d.experience) || "-"}`,
     `Location: ${e(d.city) || "-"}`,
   ];
+
+  if (cdlDocId) {
+    lines.push(``, `📎 CDL photo/document attached — tap the button below to view it.`);
+  }
 
   if (d.hasCoDriver) {
     lines.push(``, `Co-driver: ${e(d.hasCoDriver)}`);
@@ -216,7 +250,7 @@ function buildSummary(d) {
   return lines.join("\n");
 }
 
-async function sendTelegram(env, text) {
+async function sendTelegram(env, text, cdlDocId) {
   const paused = await getPaused(env);
   if (paused) {
     console.log("Notifications paused via /pause — skipping Telegram send.");
@@ -228,8 +262,12 @@ async function sendTelegram(env, text) {
 
   if (chatIds.length === 0) throw new Error("No team members configured — use /addmember in the bot");
 
+  const keyboard = cdlDocId
+    ? { inline_keyboard: [[{ text: "📎 View CDL Document", callback_data: `viewdoc:${cdlDocId}` }]] }
+    : undefined;
+
   const results = await Promise.allSettled(
-    chatIds.map((chat_id) => tgSend(env, chat_id, text))
+    chatIds.map((chat_id) => tgSend(env, chat_id, text, keyboard))
   );
 
   const failures = results.filter((r) => r.status === "rejected");
@@ -261,6 +299,53 @@ async function sendEmail(env, summaryText, data) {
   });
   if (!res.ok) throw new Error("Email send failed: " + (await res.text()));
   return res;
+}
+
+// ============================================================
+// CDL photo/document uploads — stored in a private R2 bucket, never a
+// public URL. The Telegram message only ever gets a short opaque ID; a team
+// member has to tap "View CDL Document" and have the bot fetch it from R2
+// and re-send it as a Telegram attachment, gated the same way any other
+// bot interaction is (must be a registered team member — see viewdoc:
+// handling in handleCallbackQuery). This keeps a driver's license photo
+// from ever sitting behind a guessable/public link.
+// ============================================================
+
+function randomId(bytes = 8) {
+  return Array.from(crypto.getRandomValues(new Uint8Array(bytes)))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function uploadCdlFile(env, file, data) {
+  const docId = randomId();
+  const r2Key = `cdl/${docId}`;
+  await env.CDL_BUCKET.put(r2Key, file.stream(), {
+    httpMetadata: { contentType: file.type },
+  });
+  await env.ASF_BOT_KV.put(
+    `clddoc:${docId}`,
+    JSON.stringify({
+      r2Key,
+      contentType: file.type,
+      filename: `CDL_${(data.lastName || "applicant").replace(/[^a-z0-9]/gi, "_")}${fileExtensionFor(file.type)}`,
+      uploadedAt: new Date().toISOString(),
+    })
+  );
+  return docId;
+}
+
+async function getCdlDoc(env, docId) {
+  const raw = await env.ASF_BOT_KV.get(`clddoc:${docId}`);
+  return raw ? JSON.parse(raw) : null;
+}
+
+function fileExtensionFor(contentType) {
+  if (contentType === "image/jpeg") return ".jpg";
+  if (contentType === "image/png") return ".png";
+  if (contentType === "image/webp") return ".webp";
+  if (contentType === "application/pdf") return ".pdf";
+  return "";
 }
 
 // ============================================================
@@ -610,6 +695,15 @@ async function tgEditMessage(env, chatId, messageId, text, replyMarkup) {
   return res;
 }
 
+async function tgSendDocument(env, chatId, bytes, filename, contentType) {
+  const body = new FormData();
+  body.append("chat_id", String(chatId));
+  body.append("document", new Blob([bytes], { type: contentType }), filename);
+  const res = await fetch(tgApi(env, "sendDocument"), { method: "POST", body });
+  if (!res.ok) throw new Error(`Telegram sendDocument to ${chatId} failed: ${await res.text()}`);
+  return res;
+}
+
 async function tgAnswerCallback(env, callbackQueryId, text) {
   await fetch(tgApi(env, "answerCallbackQuery"), {
     method: "POST",
@@ -766,6 +860,37 @@ async function handleCallbackQuery(env, cq) {
   await upsertUserProfile(env, cq.from);
 
   const requester = await getPerson(env, fromId);
+
+  // Any registered team member can view an attached CDL doc — not gated to
+  // panel access, since Members already receive the full application text
+  // (including this same button) via their notification DM.
+  if (data.startsWith("viewdoc:")) {
+    if (!requester) {
+      await tgAnswerCallback(env, cq.id, "Not authorized.");
+      return;
+    }
+    const docId = data.slice("viewdoc:".length);
+    const doc = await getCdlDoc(env, docId);
+    if (!doc) {
+      await tgAnswerCallback(env, cq.id, "That file is no longer available.");
+      return;
+    }
+    const object = await env.CDL_BUCKET.get(doc.r2Key);
+    if (!object) {
+      await tgAnswerCallback(env, cq.id, "That file is no longer available.");
+      return;
+    }
+    await tgAnswerCallback(env, cq.id, "Sending document…");
+    try {
+      const bytes = await object.arrayBuffer();
+      await tgSendDocument(env, chatId, bytes, doc.filename, doc.contentType);
+    } catch (err) {
+      console.error("Failed to send CDL document:", err?.message || err);
+      await tgSend(env, chatId, "Couldn't send that file — try again in a moment.");
+    }
+    return;
+  }
+
   if (!hasPanelAccess(requester)) {
     await tgAnswerCallback(env, cq.id, "Not authorized.");
     return;

@@ -3,8 +3,10 @@
   "compatibility_date": "2026-07-14",
   "workers_dev": true,
   "preview_urls": false,
+  "main": "site-worker.js",
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
     "not_found_handling": "404-page"
   },
   "routes": [

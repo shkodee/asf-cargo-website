@@ -15,5 +15,11 @@
       "binding": "ASF_BOT_KV",
       "id": "66e0674ed6484e47b719ffb950959c29"
     }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "CDL_BUCKET",
+      "bucket_name": "asf-cargo-cdl-docs"
+    }
   ]
 }

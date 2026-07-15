@@ -294,6 +294,12 @@
 .field-error {
   color: var(--red-dark); font-size: 0.78rem; margin: 6px 0 0; font-family: 'IBM Plex Mono', monospace;
 }
+.field-hint {
+  color: var(--steel); font-size: 0.78rem; margin: 6px 0 0; font-family: 'IBM Plex Mono', monospace;
+}
+.field input[type="file"] {
+  padding: 10px 12px; cursor: pointer;
+}
 .honeypot-field {
   position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px; overflow: hidden;
 }

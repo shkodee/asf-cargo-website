@@ -36,6 +36,16 @@ This prints a binding block — add it to `wrangler.jsonc` in this folder:
 ]
 ```
 
+## 3b. Enable R2 + create the CDL-doc bucket (2 min) — needed for the CDL upload feature
+R2 has to be turned on for the Cloudflare account once, from the dashboard (Workers &
+Pages → R2 → **Enable R2** — no CLI/API path for this first-time enablement). After that:
+```
+npx wrangler r2 bucket create asf-cargo-cdl-docs
+```
+This bucket is **private** — CDL photos never get a public URL. A team member views one by
+tapping "📎 View CDL Document" on the Telegram notification, which has the bot fetch the file
+from R2 and re-send it as a Telegram attachment (see `viewdoc:` in `worker.js`).
+
 ## 4. Deploy the Worker (5–8 min)
 
 **Preferred: via CLI, from this folder** (`asf-cargo/worker/` — it has its own

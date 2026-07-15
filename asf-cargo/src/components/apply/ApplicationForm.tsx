@@ -37,11 +37,66 @@ const REQUIRED_FIELDS: { key: keyof ApplicationPayload; label: string }[] = [
   { key: 'phone', label: 'Phone' },
 ];
 
+// Order matters here — it's the order errors are checked/focused in on submit.
+const VALIDATED_FIELD_ORDER: (keyof ApplicationPayload)[] = [
+  'firstName', 'lastName', 'phone', 'email', 'city',
+  'coDriverPhone', 'coDriverEmail', 'coDriverCity',
+];
+
+const cityLookup = new Set(usCitySuggestions.map((c) => c.toLowerCase()));
+
+function digitsOnly(value: string): string {
+  return value.replace(/\D/g, '');
+}
+
+// Formats as the user types, e.g. "(555) 555-5555" — also the mechanism that
+// keeps the field to digits only, since anything non-numeric gets stripped.
+function formatPhone(value: string): string {
+  const d = digitsOnly(value).slice(0, 10);
+  if (d.length < 4) return d;
+  if (d.length < 7) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+}
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function isKnownCity(value: string): boolean {
+  return cityLookup.has(value.trim().toLowerCase());
+}
+
+const CDL_MAX_BYTES = 8 * 1024 * 1024;
+const CDL_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+
 export default function ApplicationForm() {
   const [form, setForm] = useState<ApplicationPayload>(initialForm);
+  const [cdlFile, setCdlFile] = useState<File | null>(null);
+  const [cdlFileError, setCdlFileError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<Status>(null);
   const [errors, setErrors] = useState<Errors>({});
+
+  function handleCdlFileChange(fileList: FileList | null) {
+    const file = fileList?.[0] || null;
+    if (!file) {
+      setCdlFile(null);
+      setCdlFileError(null);
+      return;
+    }
+    if (!CDL_ALLOWED_TYPES.includes(file.type)) {
+      setCdlFile(null);
+      setCdlFileError('File must be a JPEG, PNG, WEBP, or PDF.');
+      return;
+    }
+    if (file.size > CDL_MAX_BYTES) {
+      setCdlFile(null);
+      setCdlFileError('File must be under 8MB.');
+      return;
+    }
+    setCdlFile(file);
+    setCdlFileError(null);
+  }
 
   function update<K extends keyof ApplicationPayload>(key: K, value: ApplicationPayload[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -86,6 +141,26 @@ export default function ApplicationForm() {
     for (const { key, label } of REQUIRED_FIELDS) {
       if (!form[key].trim()) next[key] = `${label} is required.`;
     }
+    if (!next.phone && digitsOnly(form.phone).length !== 10) {
+      next.phone = 'Enter a valid 10-digit phone number.';
+    }
+    if (form.email && !isValidEmail(form.email)) {
+      next.email = 'Enter a valid email address.';
+    }
+    if (form.city && !isKnownCity(form.city)) {
+      next.city = 'Select a city from the list.';
+    }
+    if (form.hasCoDriver === coDriverOptions[0]) {
+      if (form.coDriverPhone && digitsOnly(form.coDriverPhone).length !== 10) {
+        next.coDriverPhone = 'Enter a valid 10-digit phone number.';
+      }
+      if (form.coDriverEmail && !isValidEmail(form.coDriverEmail)) {
+        next.coDriverEmail = 'Enter a valid email address.';
+      }
+      if (form.coDriverCity && !isKnownCity(form.coDriverCity)) {
+        next.coDriverCity = 'Select a city from the list.';
+      }
+    }
     return next;
   }
 
@@ -95,7 +170,7 @@ export default function ApplicationForm() {
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
       setStatus({ type: 'err', message: 'Please fix the highlighted fields below.' });
-      const firstInvalidKey = REQUIRED_FIELDS.find((f) => validationErrors[f.key])?.key;
+      const firstInvalidKey = VALIDATED_FIELD_ORDER.find((key) => validationErrors[key]);
       if (firstInvalidKey) {
         document.getElementById(firstInvalidKey)?.focus();
       }
@@ -105,14 +180,16 @@ export default function ApplicationForm() {
       // Honeypot tripped — pretend success without actually submitting.
       setForm(initialForm);
       setErrors({});
+      setCdlFile(null);
       setStatus({ type: 'ok', message: "Application received — we'll be in touch soon. Thank you!" });
       return;
     }
     setSubmitting(true);
     try {
-      await submitApplication(form);
+      await submitApplication(form, cdlFile);
       setForm(initialForm);
       setErrors({});
+      setCdlFile(null);
       setStatus({ type: 'ok', message: "Application received — we'll be in touch soon. Thank you!" });
     } catch {
       setStatus({
@@ -177,22 +254,25 @@ export default function ApplicationForm() {
               type="tel"
               id="phone"
               placeholder="(555) 555-5555"
+              inputMode="numeric"
               required
               aria-invalid={!!errors.phone}
               value={form.phone}
-              onChange={(e) => update('phone', e.target.value)}
+              onChange={(e) => update('phone', formatPhone(e.target.value))}
             />
             {errors.phone && <p className="field-error">{errors.phone}</p>}
           </div>
-          <div className="field">
+          <div className={`field${errors.email ? ' invalid' : ''}`}>
             <label htmlFor="email">Email</label>
             <input
               type="email"
               id="email"
               placeholder="you@example.com"
+              aria-invalid={!!errors.email}
               value={form.email}
               onChange={(e) => update('email', e.target.value)}
             />
+            {errors.email && <p className="field-error">{errors.email}</p>}
           </div>
         </div>
 
@@ -218,6 +298,20 @@ export default function ApplicationForm() {
           </div>
         </div>
 
+        <div className="form-row single">
+          <div className={`field${cdlFileError ? ' invalid' : ''}`}>
+            <label htmlFor="cdlFile">CDL photo or document (optional)</label>
+            <input
+              type="file"
+              id="cdlFile"
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              onChange={(e) => handleCdlFileChange(e.target.files)}
+            />
+            {cdlFileError && <p className="field-error">{cdlFileError}</p>}
+            {cdlFile && !cdlFileError && <p className="field-hint">Selected: {cdlFile.name}</p>}
+          </div>
+        </div>
+
         <div className="form-row">
           <div className="field">
             <label htmlFor="experience">Years of driving experience</label>
@@ -231,16 +325,19 @@ export default function ApplicationForm() {
               ))}
             </select>
           </div>
-          <div className="field">
+          <div className={`field${errors.city ? ' invalid' : ''}`}>
             <label htmlFor="city">Current city / state</label>
             <input
               type="text"
               id="city"
               list="city-suggestions"
               placeholder="e.g. Memphis, TN"
+              autoComplete="off"
+              aria-invalid={!!errors.city}
               value={form.city}
               onChange={(e) => update('city', e.target.value)}
             />
+            {errors.city && <p className="field-error">{errors.city}</p>}
           </div>
         </div>
 
@@ -314,15 +411,18 @@ export default function ApplicationForm() {
               </div>
             </div>
             <div className="form-row">
-              <div className="field">
+              <div className={`field${errors.coDriverPhone ? ' invalid' : ''}`}>
                 <label htmlFor="coDriverPhone">Co-driver phone</label>
                 <input
                   type="tel"
                   id="coDriverPhone"
                   placeholder="(555) 555-5555"
+                  inputMode="numeric"
+                  aria-invalid={!!errors.coDriverPhone}
                   value={form.coDriverPhone}
-                  onChange={(e) => update('coDriverPhone', e.target.value)}
+                  onChange={(e) => update('coDriverPhone', formatPhone(e.target.value))}
                 />
+                {errors.coDriverPhone && <p className="field-error">{errors.coDriverPhone}</p>}
               </div>
               <div className="field">
                 <label htmlFor="coDriverExperience">Co-driver years of experience</label>
@@ -339,26 +439,31 @@ export default function ApplicationForm() {
               </div>
             </div>
             <div className="form-row">
-              <div className="field">
+              <div className={`field${errors.coDriverEmail ? ' invalid' : ''}`}>
                 <label htmlFor="coDriverEmail">Co-driver email</label>
                 <input
                   type="email"
                   id="coDriverEmail"
                   placeholder="you@example.com"
+                  aria-invalid={!!errors.coDriverEmail}
                   value={form.coDriverEmail}
                   onChange={(e) => update('coDriverEmail', e.target.value)}
                 />
+                {errors.coDriverEmail && <p className="field-error">{errors.coDriverEmail}</p>}
               </div>
-              <div className="field">
+              <div className={`field${errors.coDriverCity ? ' invalid' : ''}`}>
                 <label htmlFor="coDriverCity">Co-driver current city / state</label>
                 <input
                   type="text"
                   id="coDriverCity"
                   list="city-suggestions"
                   placeholder="e.g. Memphis, TN"
+                  autoComplete="off"
+                  aria-invalid={!!errors.coDriverCity}
                   value={form.coDriverCity}
                   onChange={(e) => update('coDriverCity', e.target.value)}
                 />
+                {errors.coDriverCity && <p className="field-error">{errors.coDriverCity}</p>}
               </div>
             </div>
             <div className="form-row">

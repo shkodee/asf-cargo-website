@@ -81,6 +81,25 @@
   activation, Resend email, proper OG image, equipment scroll animation.
 - ✅ **Owner account (`880712904`) has now messaged the bot** — can receive DMs, no longer blocked.
 - ✅ **Stray `photo_2026-07-15_05-05-11.jpg` deleted** from `public/`.
+- 🧪 **CDL photo/document upload — built, not yet deployed.** See its own section below
+  ("CDL document upload") for the full architecture. Blocked on enabling R2 on the Cloudflare
+  account (dashboard-only, one-time) before `wrangler deploy` can actually ship it.
+- 🧪 **Form validation tightened — built, not yet deployed.** Phone now auto-formats and enforces
+  10 digits; email format validated when filled in; city fields (primary + co-driver) must match
+  the existing autocomplete list instead of accepting free text. `ApplicationForm.tsx`.
+- 🧪 **HTTP→HTTPS redirect + HSTS — built, not yet deployed.** Root-caused the browser "not
+  secure" warning on `asfcargollc.com`: both custom domains served real content over plain HTTP
+  with a `200` (no redirect) — confirmed via `curl http://asfcargollc.com/`, and confirmed the
+  HTTPS side's certificate itself was fine. Cloudflare's zone-level "Always Use HTTPS" wasn't
+  covering this Worker route, so the fix is in code, not a dashboard toggle: `asf-cargo/wrangler.jsonc`
+  now has a `main: "site-worker.js"` in front of the `ASSETS` binding, which redirects any
+  `http:` request to `https:` (301) and adds `Strict-Transport-Security` to every response. This
+  Worker auto-deploys on `git push`, so it ships the next time `main` is pushed.
+- ✅ **`GET /lanes` now sends `Cache-Control: no-store`** (deployed with the rest of `worker.js`
+  once R2 is enabled — see above) — defensive fix investigated after a "lane update doesn't
+  work" report. The underlying live-data mechanism itself is confirmed working (a lane added
+  via the bot mid-session showed up correctly through the API), so this addresses staleness/
+  caching as the most likely remaining explanation, not a mechanism rewrite.
 
 ## What this is
 A recruiting/informational website for a trucking company, built to attract CDL-A drivers
@@ -418,6 +437,39 @@ three issues, all deployed and verified live the same day:
 outbound API calls, never logged/echoed, `npm audit` reports 0 vulnerabilities, and there's no
 SQL/NoSQL injection surface (everything is KV key/value, no query language).
 
+## CDL document upload (application form) — built 2026-07-15, not yet deployed
+Optional file field on the apply form (`ApplicationForm.tsx`) for a CDL photo or scanned
+document — JPEG/PNG/WEBP/PDF, 8MB cap, validated both client-side (immediate feedback) and
+server-side (`worker.js`, since the client check is trivially bypassable).
+
+**Deliberately never a public link.** The client's stated security concern is data at rest, and
+a driver's license photo is meaningfully more sensitive than the rest of the application, so
+this doesn't follow the "needs an R2 bucket" TODO note literally — it uses R2 for storage but
+keeps the bucket private with no public access at all:
+- The form switched from JSON to `multipart/form-data` (`src/api/apply.ts`) so the file can ride
+  along with the rest of the fields in one request. **Don't set a `Content-Type` header manually
+  on this request** — the browser needs to set its own multipart boundary.
+- `handleApplicationForm()` in `worker.js` validates the file (size/MIME type), uploads it to the
+  `CDL_BUCKET` R2 binding under a random key, and stores a mapping (`clddoc:<shortId>` → R2 key +
+  filename + content type) in the existing `ASF_BOT_KV` namespace. Only this short opaque ID
+  (never a URL) goes into the Telegram message.
+- The team's notification gets a "📎 View CDL Document" inline button
+  (`callback_data: viewdoc:<shortId>`). Tapping it has the bot fetch the object from R2 and
+  re-send it as a real Telegram document attachment (`tgSendDocument()`) — the file bytes only
+  ever move R2 → Worker → Telegram, never through a browser-accessible link.
+- **Authorization deliberately isn't limited to Owner/Admin panel access** — any registered team
+  member (Members included) can tap the button, since Members already receive the full
+  applicant text (name, phone, CDL number, etc.) in the same notification. Gating the photo
+  specifically to a smaller group than the rest of the application data wouldn't add real
+  protection. See the `viewdoc:` handling at the top of `handleCallbackQuery()` — it runs before
+  the general `hasPanelAccess()` gate that the rest of the panel callbacks use.
+
+**Blocked on one dashboard action:** R2 isn't enabled on this Cloudflare account yet
+(`npx wrangler r2 bucket create` fails with `[code: 10042] Please enable R2 through the
+Cloudflare Dashboard`) — first-time R2 enablement has no CLI/API path. Once enabled: create the
+bucket (`asf-cargo-cdl-docs`, already referenced in `worker/wrangler.jsonc`'s `r2_buckets`), then
+`wrangler deploy` from `asf-cargo/worker/`. See `worker/README.md` step 3b.
+
 ## Co-driver feature (application form)
 When **Team Driver** is selected as Position, a consolidated block appears (Position, "Do you
 have a co-driver?", and — if "I already have one" — co-driver info fields) positioned right
@@ -455,7 +507,8 @@ c:\asf-cargo-website\            # git repo root
     ├── apply.html                 # Vite entry: application form — div#root + script src="/src/apply-main.tsx"; also carries OG/Twitter tags
     ├── 404.html                   # Vite entry: not-found page — div#root + script src="/src/notfound-main.tsx"
     ├── package.json / vite.config.ts / tsconfig*.json
-    ├── wrangler.jsonc              # Cloudflare Workers static-assets config — assets.directory: "./dist"
+    ├── site-worker.js              # thin wrapper around the ASSETS binding — forces HTTPS + HSTS
+    ├── wrangler.jsonc              # Cloudflare Workers config — main: site-worker.js, assets.directory: "./dist"
     ├── public/
     │   ├── logo.png                 # bordered/transparent badge, user-supplied, served at /logo.png
     │   ├── truck.png / van.png / flatbed.png   # equipment card photos, user-supplied
