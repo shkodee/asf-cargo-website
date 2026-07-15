@@ -57,6 +57,27 @@
   translating its timing into a real GSAP ScrollTrigger implementation on the Equipment section.
   No code for this exists yet — don't start building it without the reference video or explicit
   go-ahead, since the phase timing/positions are meant to come from what that video actually shows.
+- ✅ **Equipment photo lightbox** (2026-07-15) — `EquipmentLightbox.tsx`, triggered by clicking a
+  card's image (now a real `<button>` for keyboard/focus support, with a hover zoom + "Click to
+  enlarge" hint). Opens a fade/scale-in overlay with the full image plus tag/title/description;
+  click anywhere (including the image — no `stopPropagation`) or Escape to close, with a matching
+  exit animation. Manages its own "closing" state (`rendered`/`entered` in the component) so the
+  exit transition finishes before the overlay unmounts — the naive version would unmount instantly
+  and skip the fade-out. Respects `prefers-reduced-motion`.
+- ✅ **Lane-change team notifications** (2026-07-15) — adding or removing a lane via the bot now
+  DMs everyone else with panel access (`notifyTeamOfLaneChange()` in `worker.js`) with who did it
+  (username/name only, never the numeric ID — same rule as the Team view) and the lane's details.
+  The actor themselves is excluded since they already get their own confirmation message.
+- ✅ **City autocomplete expanded** (2026-07-15) — `usCitySuggestions` in `content.ts` grew from
+  ~185 to 1,006 entries, rebuilt from a real top-1000-by-population dataset (was missing mid-size
+  cities like Bayonne, NJ) plus the small towns that are actually on the company's lanes but too
+  small for any population cutoff (Middletown PA, Carlisle PA, Ellenwood GA, Fishkill NY, Hodgkins
+  IL, Capitol Heights MD).
+- ✅ **Security hardening pass** (2026-07-15) — full audit + fixes for the relay Worker: every
+  user-controlled value now HTML-escaped before going into a `parse_mode: "HTML"` Telegram
+  message, lightweight KV-based rate limiting on the two public endpoints, and `SETUP_SECRET`
+  moved from a URL query param to a header. All three deployed and verified live. See "Security
+  hardening pass" section below.
 - ⏳ **Not done yet:** Resend email, Cloudflare Web Analytics (needs a dashboard-generated token
   — no CLI path for this), CDL photo upload (deliberately deferred, needs R2), and content items
   that need client input (see "Open items" below).
@@ -284,9 +305,10 @@ they live only in Cloudflare KV, never in git.
 - `POST /telegram-webhook` — Telegram delivers bot updates (messages, button taps)
   here; verified via the `X-Telegram-Bot-Api-Secret-Token` header matching
   `TELEGRAM_WEBHOOK_SECRET`, so nobody else can inject fake bot commands
-- `GET /setup-webhook?secret=...` — one-time endpoint (protected by `SETUP_SECRET`)
-  that tells Telegram where to send updates and registers the `/` command list.
-  Normally never needs re-running after initial setup.
+- `GET /setup-webhook` — one-time endpoint (protected by an `X-Setup-Secret` header,
+  not a URL query param — see "Security hardening pass" below) that tells Telegram
+  where to send updates and registers the `/` command list. Normally never needs
+  re-running after initial setup.
 
 **State lives in a Cloudflare KV namespace** (`ASF_BOT_KV`, bound in
 `worker/wrangler.jsonc`), not a static secret — this is what lets the bot manage its
@@ -354,6 +376,47 @@ dashboard:** `TELEGRAM_CHAT_ID` (original single-group-chat version) and
 `TELEGRAM_ADMIN_CHAT_IDS` (intermediate static-list version, superseded by the KV
 `admins` array). Neither is read by the current code; both were left in place
 rather than deleted mid-session to avoid any risk to the working bot.
+
+## Security hardening pass (2026-07-15)
+A full audit of `worker/worker.js` (the only server-side code in this project) found and fixed
+three issues, all deployed and verified live the same day:
+
+1. **HTML injection into Telegram messages (was the critical finding).** Every `tgSend`/
+   `tgEditMessage` call uses `parse_mode: "HTML"`, but message text was built by directly
+   interpolating raw values — applicant-submitted form fields (`buildSummary()`), admin-typed
+   lane status/city text, and Telegram display names (attacker-controllable, no character
+   restrictions Telegram enforces). A stray `<`/`>`/`&` either broke delivery entirely (Telegram
+   rejects the whole message with `400: can't parse entities`) or rendered as real formatting/
+   links — a phishing vector against the team, and a reachable one since the application form is
+   public. **Fixed** with a new `escapeHtml()` helper (top of `worker.js`), applied at every
+   message-*text* interpolation site: `buildSummary()`, `handlePendingLaneInput()`'s echoes,
+   `finalizeLane()`, `notifyTeamOfLaneChange()`, `buildLaneDetailView()`, the
+   `lane:confirmremove` handler, `buildAdminsView()`'s list text, and the `/addmember` role-picker
+   prompt. **Deliberately NOT applied inside `formatAdminLabel()` itself** — its output is also
+   used raw as inline-keyboard *button* text, which Telegram never HTML-parses, so escaping there
+   would show literal `&amp;` in buttons. Verified live with a real test submission containing
+   `<script>`, `<b>`, and `&` — delivered cleanly instead of failing/rendering as markup.
+2. **No rate limiting on either public endpoint.** Added `checkRateLimit()` — a best-effort
+   KV-counter (`ratelimit:<namespace>:<ip>`, `expirationTtl`-based window; not atomic/instantly
+   consistent, which is fine at this bot's traffic volume, this is an abuse/scraping brake, not a
+   precise budget). Applied to `POST /` (5/hour per `CF-Connecting-IP` — the application form) and
+   `GET /lanes` (60/minute per IP — sized for `useLanes()` firing twice per page load, Hero +
+   dispatch board). **Deliberately not applied** to `/telegram-webhook` or `/setup-webhook` — both
+   are already secret-token-gated, and rate-limiting could break legitimate bursty bot usage.
+   Verified live: a burst past the `/lanes` limit returned `429`s once the KV counter caught up
+   (there's a brief window right after a burst starts where reads can lag recent writes — expected
+   KV eventual-consistency behavior, not a bug).
+3. **`SETUP_SECRET` was passed as a URL query param.** Query strings routinely end up in server
+   access logs, browser history, and `Referer` headers — a header doesn't, by default. Changed
+   `handleSetupWebhook()` to check `X-Setup-Secret` instead; `worker/README.md`'s step 5 updated
+   from "visit this URL in a browser" to a `curl -H "X-Setup-Secret: ..."` command. Verified live:
+   the endpoint now 403s with no header.
+
+**Confirmed clean, no action needed:** CORS is already origin-allow-listed (not wildcard), no
+`dangerouslySetInnerHTML`/`eval` anywhere in the frontend, secrets (`TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_WEBHOOK_SECRET`, `SETUP_SECRET`, `RESEND_API_KEY`) are only ever used in comparisons or
+outbound API calls, never logged/echoed, `npm audit` reports 0 vulnerabilities, and there's no
+SQL/NoSQL injection surface (everything is KV key/value, no query language).
 
 ## Co-driver feature (application form)
 When **Team Driver** is selected as Position, a consolidated block appears (Position, "Do you

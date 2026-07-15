@@ -15,7 +15,7 @@
  *                            read by the website at runtime instead of a static import
  *   POST /telegram-webhook — Telegram sends bot updates here (verified via secret token)
  *   GET  /setup-webhook    — one-time: tells Telegram to start sending updates to
- *                            /telegram-webhook (protected by SETUP_SECRET query param)
+ *                            /telegram-webhook (protected by an X-Setup-Secret header)
  *
  * Deploy this on Cloudflare Workers (free tier). See README.md in this folder
  * for the full setup walkthrough.
@@ -47,6 +47,29 @@ export default {
   },
 };
 
+// Telegram messages are sent with parse_mode: "HTML" — any value that ends up
+// in message *text* (not inline-keyboard button labels, which Telegram never
+// HTML-parses) must have &/</> escaped first. Otherwise a stray "<" from a
+// form field or a Telegram display name either breaks delivery outright (the
+// whole message gets rejected) or renders as real formatting/links.
+function escapeHtml(value) {
+  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Best-effort request throttling for the two public endpoints (KV writes
+// aren't atomic, so a race can let a couple extra requests through — fine at
+// this bot's traffic volume, the goal is blunting abuse/scraping, not exact
+// counting). Keyed by client IP + a namespace so the form and the lanes feed
+// don't share a budget.
+async function checkRateLimit(env, key, limit, windowSeconds) {
+  const kvKey = `ratelimit:${key}`;
+  const raw = await env.ASF_BOT_KV.get(kvKey);
+  const count = raw ? parseInt(raw, 10) : 0;
+  if (count >= limit) return false;
+  await env.ASF_BOT_KV.put(kvKey, String(count + 1), { expirationTtl: windowSeconds });
+  return true;
+}
+
 function corsHeadersFor(request) {
   const origin = request.headers.get("Origin");
   return {
@@ -58,6 +81,19 @@ function corsHeadersFor(request) {
 
 async function handleGetLanes(request, env) {
   const headers = corsHeadersFor(request);
+
+  // Sized for useLanes() firing twice per page load (Hero + dispatch board),
+  // with plenty of headroom for normal browsing — this is just an abuse/
+  // scraping brake, not a tight budget.
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const allowed = await checkRateLimit(env, `lanes:${ip}`, 60, 60);
+  if (!allowed) {
+    return new Response(JSON.stringify({ error: "Too many requests" }), {
+      status: 429,
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+  }
+
   const lanes = await getLanes(env);
   // Public response is state-level + coordinates only — never the real city
   // names. City text (`originCity`/`destCity`) exists in KV for the bot's
@@ -96,6 +132,12 @@ async function handleApplicationForm(request, env) {
 
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+  }
+
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const allowed = await checkRateLimit(env, `apply:${ip}`, 5, 3600);
+  if (!allowed) {
+    return new Response("Too many requests — try again later.", { status: 429, headers: corsHeaders });
   }
 
   let data;
@@ -143,33 +185,34 @@ async function handleApplicationForm(request, env) {
 }
 
 function buildSummary(d) {
+  const e = escapeHtml;
   const lines = [
     `🚛 NEW DRIVER APPLICATION`,
     ``,
-    `Name: ${d.firstName || ""} ${d.lastName || ""}`,
-    `Phone: ${d.phone || "-"}`,
-    `Email: ${d.email || "-"}`,
-    `Position: ${d.position || "-"}`,
-    `CDL #: ${d.cdlNumber || "-"} (${d.cdlState || "-"})`,
-    `Experience: ${d.experience || "-"}`,
-    `Location: ${d.city || "-"}`,
+    `Name: ${e(d.firstName)} ${e(d.lastName)}`,
+    `Phone: ${e(d.phone) || "-"}`,
+    `Email: ${e(d.email) || "-"}`,
+    `Position: ${e(d.position) || "-"}`,
+    `CDL #: ${e(d.cdlNumber) || "-"} (${e(d.cdlState) || "-"})`,
+    `Experience: ${e(d.experience) || "-"}`,
+    `Location: ${e(d.city) || "-"}`,
   ];
 
   if (d.hasCoDriver) {
-    lines.push(``, `Co-driver: ${d.hasCoDriver}`);
+    lines.push(``, `Co-driver: ${e(d.hasCoDriver)}`);
     if (d.coDriverFirstName || d.coDriverLastName) {
       lines.push(
-        `  Name: ${d.coDriverFirstName || ""} ${d.coDriverLastName || ""}`,
-        `  Phone: ${d.coDriverPhone || "-"}`,
-        `  Email: ${d.coDriverEmail || "-"}`,
-        `  Location: ${d.coDriverCity || "-"}`,
-        `  CDL #: ${d.coDriverCdlNumber || "-"} (${d.coDriverCdlState || "-"})`,
-        `  Experience: ${d.coDriverExperience || "-"}`
+        `  Name: ${e(d.coDriverFirstName)} ${e(d.coDriverLastName)}`,
+        `  Phone: ${e(d.coDriverPhone) || "-"}`,
+        `  Email: ${e(d.coDriverEmail) || "-"}`,
+        `  Location: ${e(d.coDriverCity) || "-"}`,
+        `  CDL #: ${e(d.coDriverCdlNumber) || "-"} (${e(d.coDriverCdlState) || "-"})`,
+        `  Experience: ${e(d.coDriverExperience) || "-"}`
       );
     }
   }
 
-  lines.push(``, `Message: ${d.message || "-"}`);
+  lines.push(``, `Message: ${e(d.message) || "-"}`);
   return lines.join("\n");
 }
 
@@ -353,7 +396,7 @@ async function handlePendingLaneInput(env, chatId, fromId, text, pending) {
       return;
     }
     if (!coords) {
-      await tgSend(env, chatId, `Couldn't find "${text}" — try again with the format 'City, ST' (e.g. Memphis, TN).`);
+      await tgSend(env, chatId, `Couldn't find "${escapeHtml(text)}" — try again with the format 'City, ST' (e.g. Memphis, TN).`);
       return;
     }
 
@@ -364,7 +407,7 @@ async function handlePendingLaneInput(env, chatId, fromId, text, pending) {
         originState: stateNameFromCityState(text),
         originCoords: coords,
       });
-      await tgSend(env, chatId, `✅ Origin: ${text}\n\nNow send the destination as 'City, ST'.`);
+      await tgSend(env, chatId, `✅ Origin: ${escapeHtml(text)}\n\nNow send the destination as 'City, ST'.`);
       return;
     }
 
@@ -375,7 +418,7 @@ async function handlePendingLaneInput(env, chatId, fromId, text, pending) {
       destState: stateNameFromCityState(text),
       destCoords: coords,
     });
-    await tgSend(env, chatId, `✅ Destination: ${text}\n\nWhat's the status?`, {
+    await tgSend(env, chatId, `✅ Destination: ${escapeHtml(text)}\n\nWhat's the status?`, {
       inline_keyboard: [
         [{ text: "Daily", callback_data: "lanestatus:Daily" }],
         [{ text: "Weekly", callback_data: "lanestatus:Weekly" }],
@@ -412,7 +455,7 @@ async function finalizeLane(env, chatId, fromId, draft) {
   await tgSend(
     env,
     chatId,
-    `✅ Added lane #${idx}: ${lane.origin} → ${lane.dest} (${lane.status})\n\n${text}`,
+    `✅ Added lane #${idx}: ${escapeHtml(lane.origin)} → ${escapeHtml(lane.dest)} (${escapeHtml(lane.status)})\n\n${text}`,
     keyboard
   );
 
@@ -426,7 +469,7 @@ async function finalizeLane(env, chatId, fromId, draft) {
 async function notifyTeamOfLaneChange(env, action, lane, actorId) {
   const actorProfile = await getUserProfile(env, actorId);
   const actorLabel = formatAdminLabel(actorId, actorProfile, false);
-  const text = `🛣 Lane ${action} by ${actorLabel}\n${lane.origin} → ${lane.dest} (${lane.status})`;
+  const text = `🛣 Lane ${action} by ${escapeHtml(actorLabel)}\n${escapeHtml(lane.origin)} → ${escapeHtml(lane.dest)} (${escapeHtml(lane.status)})`;
 
   const admins = await getAdmins(env);
   const recipients = admins.filter((a) => hasPanelAccess(a) && String(a.id) !== String(actorId));
@@ -477,7 +520,7 @@ async function buildAdminsView(env, viewerRole) {
   }));
 
   const listText = labeled.length
-    ? labeled.map((a) => `• ${a.label} — ${roleTag(a.role)}`).join("\n")
+    ? labeled.map((a) => `• ${escapeHtml(a.label)} — ${roleTag(a.role)}`).join("\n")
     : "(none)";
   const keyboard = {
     inline_keyboard: [
@@ -524,7 +567,7 @@ async function buildLaneDetailView(env, idx) {
   const lane = lanes.find((l) => l.idx === idx);
   if (!lane) return null;
   return {
-    text: `🛣 Lane #${lane.idx}\n${lane.origin} → ${lane.dest}\nStatus: ${lane.status}`,
+    text: `🛣 Lane #${lane.idx}\n${escapeHtml(lane.origin)} → ${escapeHtml(lane.dest)}\nStatus: ${escapeHtml(lane.status)}`,
     keyboard: {
       inline_keyboard: [
         [{ text: "✏️ Change Status", callback_data: `lane:changestatus:${idx}` }],
@@ -700,7 +743,7 @@ async function handleMessage(env, message) {
     }
     const profile = await getUserProfile(env, newId);
     const label = formatAdminLabel(newId, profile);
-    await tgSend(env, chatId, `What role should ${label} have?`, {
+    await tgSend(env, chatId, `What role should ${escapeHtml(label)} have?`, {
       inline_keyboard: [
         [{ text: "👑 Owner", callback_data: `addrole:${newId}:owner` }],
         [{ text: "🛠 Admin", callback_data: `addrole:${newId}:admin` }],
@@ -828,7 +871,7 @@ async function handleCallbackQuery(env, cq) {
       env,
       chatId,
       messageId,
-      `⚠️ Remove lane #${lane.idx}: ${lane.origin} → ${lane.dest}?\nThis can't be undone.`,
+      `⚠️ Remove lane #${lane.idx}: ${escapeHtml(lane.origin)} → ${escapeHtml(lane.dest)}?\nThis can't be undone.`,
       {
         inline_keyboard: [
           [{ text: "✅ Yes, remove it", callback_data: `lane:doremove:${idx}` }],
@@ -918,7 +961,10 @@ async function handleCallbackQuery(env, cq) {
 // ============================================================
 
 async function handleSetupWebhook(request, url, env) {
-  if (url.searchParams.get("secret") !== env.SETUP_SECRET) {
+  // Header instead of a URL query param — query strings routinely end up in
+  // server access logs, browser history, and Referer headers; a header
+  // doesn't get logged by any of those by default.
+  if (request.headers.get("X-Setup-Secret") !== env.SETUP_SECRET) {
     return new Response("Forbidden", { status: 403 });
   }
 

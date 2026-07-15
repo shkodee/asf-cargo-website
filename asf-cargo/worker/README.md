@@ -64,13 +64,15 @@ Add these secrets (`wrangler secret put NAME`, paste the value when prompted):
 Note the Worker's URL — it looks like `https://asf-cargo-relay.yourname.workers.dev`.
 
 ## 5. Register the webhook + bot commands (1 min, one-time)
-Visit this URL once in a browser (with your real Worker URL and `SETUP_SECRET`):
+`SETUP_SECRET` is checked via an `X-Setup-Secret` header, not a URL query param
+(query strings end up in logs/browser history/Referer headers by default — a
+header doesn't), so this needs a `curl` call rather than just visiting a URL:
 ```
-https://asf-cargo-relay.yourname.workers.dev/setup-webhook?secret=YOUR_SETUP_SECRET
+curl -H "X-Setup-Secret: YOUR_SETUP_SECRET" https://asf-cargo-relay.yourname.workers.dev/setup-webhook
 ```
 This tells Telegram to start sending bot updates to `/telegram-webhook`, and
 registers the `/` command list in Telegram's UI. You'll see a small JSON success
-response. Re-visit this URL any time after redeploying if the webhook ever needs
+response. Re-run this any time after redeploying if the webhook ever needs
 re-registering (it doesn't, normally — this is truly one-time).
 
 ## 6. Bootstrap the first owner (1 min)
