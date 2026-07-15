@@ -111,6 +111,11 @@
 - [x] **Admins can no longer be removed from 👥 Team, by anyone (Owner included)** — client
       instruction. Remove button hidden for admin rows in the UI, plus a matching server-side
       check in the `admin:remove:` handler. Owner/Member rows unaffected.
+- [x] **Admins fully hidden from 👥 Team (not just non-removable), and IDs hidden from non-admin
+      viewers.** Superseded the item above same-day: admins no longer appear in the list text
+      either, for anyone. Separately, Owner viewers now see only `@username`/name for Owner/Member
+      rows — the raw numeric Telegram ID only shows for an Admin viewer. Verified both viewer
+      perspectives directly against the deployed bot before shipping.
 
 ## 🎬 In progress / blocked
 - [ ] **Equipment section scroll animation.** Concept: truck rolls in from the right and settles

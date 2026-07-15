@@ -434,19 +434,27 @@ async function getUserProfile(env, id) {
   return raw ? JSON.parse(raw) : null;
 }
 
-function formatAdminLabel(id, profile) {
-  if (profile?.username) return `@${profile.username} (${id})`;
-  if (profile?.firstName) return `${profile.firstName} (${id})`;
-  return `${id}`;
+function formatAdminLabel(id, profile, showId = true) {
+  if (profile?.username) return showId ? `@${profile.username} (${id})` : `@${profile.username}`;
+  if (profile?.firstName) return showId ? `${profile.firstName} (${id})` : profile.firstName;
+  return showId ? `${id}` : "(unnamed)";
 }
 
-async function buildAdminsView(env) {
-  const admins = await getAdmins(env);
+// `viewerRole` controls what the requesting person sees: Admins get full
+// info (username/name + numeric ID); everyone else with panel access
+// (Owner) sees only username/name, never the raw ID — client instruction.
+async function buildAdminsView(env, viewerRole) {
+  const allAdmins = await getAdmins(env);
+  // Admins are fully hidden from this panel — not listed, not removable, by
+  // anyone (Owner included). Only Owner/Member entries ever appear here.
+  const admins = allAdmins.filter((a) => (a.role || "admin") !== "admin");
+  const showId = viewerRole === "admin";
+
   const profiles = await Promise.all(admins.map((a) => getUserProfile(env, a.id)));
   const labeled = admins.map((a, i) => ({
     id: a.id,
     role: a.role || "admin",
-    label: formatAdminLabel(a.id, profiles[i]),
+    label: formatAdminLabel(a.id, profiles[i], showId),
   }));
 
   const listText = labeled.length
@@ -454,14 +462,9 @@ async function buildAdminsView(env) {
     : "(none)";
   const keyboard = {
     inline_keyboard: [
-      // Admins can't be removed from this panel by anyone, Owner included —
-      // no remove button shown for them at all (see `admin:remove:` handler
-      // for the matching server-side guard).
-      ...labeled
-        .filter((a) => a.role !== "admin")
-        .map((a) => [
-          { text: `✕ Remove ${a.label} (${roleTag(a.role)})`, callback_data: `admin:remove:${a.id}` },
-        ]),
+      ...labeled.map((a) => [
+        { text: `✕ Remove ${a.label} (${roleTag(a.role)})`, callback_data: `admin:remove:${a.id}` },
+      ]),
       [{ text: "« Back", callback_data: "menu:home" }],
     ],
   };
@@ -714,7 +717,7 @@ async function handleCallbackQuery(env, cq) {
   }
 
   if (data === "menu:admins") {
-    const { text, keyboard } = await buildAdminsView(env);
+    const { text, keyboard } = await buildAdminsView(env, requester.role || "admin");
     await tgEditMessage(env, chatId, messageId, text, keyboard);
     await tgAnswerCallback(env, cq.id);
     return;
@@ -851,7 +854,7 @@ async function handleCallbackQuery(env, cq) {
     admins.push({ id: targetId, role, addedBy: String(fromId), addedAt: new Date().toISOString() });
     await saveAdmins(env, admins);
 
-    const { text, keyboard } = await buildAdminsView(env);
+    const { text, keyboard } = await buildAdminsView(env, requester.role || "admin");
     await tgEditMessage(env, chatId, messageId, `✅ Added as ${roleTag(role)}.\n\n${text}`, keyboard);
     await tgAnswerCallback(env, cq.id, "Added!");
 
@@ -880,7 +883,7 @@ async function handleCallbackQuery(env, cq) {
     }
     admins = admins.filter((a) => String(a.id) !== targetId);
     await saveAdmins(env, admins);
-    const { text, keyboard } = await buildAdminsView(env);
+    const { text, keyboard } = await buildAdminsView(env, requester.role || "admin");
     await tgEditMessage(env, chatId, messageId, text, keyboard);
     await tgAnswerCallback(env, cq.id, `Removed ${targetId}`);
     return;

@@ -99,11 +99,14 @@ CORS — update it if the site's domain ever changes.
 
 ## Bot commands & roles
 
-| Role | Panel access | Gets notifications | Removable via 👥 Team |
-|---|---|---|---|
-| 👑 Owner | Full | Yes | Yes |
-| 🛠 Admin | Full (identical to Owner) | Yes | **No — protected, even from Owner** |
-| 👤 Member | None | Yes | Yes |
+| Role | Panel access | Gets notifications | Removable via 👥 Team | Non-admin viewer sees |
+|---|---|---|---|---|
+| 👑 Owner | Full | Yes | Yes | Username/name only |
+| 🛠 Admin | Full (identical to Owner) | Yes | **No — protected, even from Owner** | — (not listed at all) |
+| 👤 Member | None | Yes | Yes | Username/name only |
+
+*(last column: what a non-admin viewer sees of that row — Admin viewers always see the full
+`@username (numeric id)` for everyone listed)*
 
 - `/start` or `/menu` — open the admin panel (Owner/Admin) or see your registration
   status (Member / unregistered)
@@ -112,9 +115,10 @@ CORS — update it if the site's domain ever changes.
   role (Owner/Admin/Member) via buttons. They must have messaged the bot at least
   once already, or they won't receive the notification (though they'll still be
   added — it'll just silently fail to greet them until they do message it).
-- **👥 Team** button — view everyone on the team with their role. Owner and Member
-  rows have a one-tap remove button; Admin rows don't — admins can't be removed
-  from this panel by anyone, Owner included.
+- **👥 Team** button — view Owner/Member rows with a one-tap remove button. Admins
+  never appear in this list at all (not just non-removable — fully hidden, Owner
+  included). Only an Admin viewer sees everyone's numeric Telegram ID; an Owner
+  viewer sees just usernames/names, never the raw ID.
 - **🛣 Lanes** button — (Owner/Admin only) tap any lane to open it, then
   **✏️ Change Status** (Daily/Weekly/Paused) or **🗑 Remove Lane** (asks for
   confirmation first — not a single accidental tap away). **+ Add Lane** walks

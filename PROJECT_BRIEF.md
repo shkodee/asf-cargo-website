@@ -317,12 +317,21 @@ own team live, no redeploy required:
 through an inline-button role picker (Owner / Admin / Member) — buttons over typed args, per the
 client's preference where the option set is small and fixed.
 
-**Admins can't be removed from the 👥 Team panel by anyone, Owner included** — client instruction,
-added same-day. `buildAdminsView()` simply omits the remove button for any `role === "admin"`
-entry, and `admin:remove:` has a matching server-side check that rejects removing an admin even if
-that callback were ever triggered another way — the UI hiding and the server guard are two
-separate places, **keep both in sync** if this policy ever changes. Owner and Member rows are
-unaffected and still removable normally.
+**Admins are fully hidden from the 👥 Team panel — not listed, not removable, by anyone, Owner
+included.** Client instruction, added same-day (superseded an earlier version that just hid the
+remove button but still listed admins in the text). `buildAdminsView(env, viewerRole)` filters
+`role === "admin"` entries out entirely before building either the text list or the keyboard;
+`admin:remove:` still has a matching server-side check as defense-in-depth in case that callback
+were ever triggered another way. **Keep both in sync** if this policy ever changes.
+
+**Team view is also role-gated on what it reveals, not just who can open it:** `viewerRole` (the
+requester's own role) controls whether the listed Owner/Member entries show their numeric Telegram
+ID. Admin viewers see `@username (id)`; everyone else with panel access (Owner) sees only
+`@username` (or `(unnamed)` if no profile is cached yet) — the ID itself never appears for a
+non-admin viewer, in the list text or the remove-button labels. `formatAdminLabel(id, profile,
+showId)`'s third argument is what switches this; every `buildAdminsView()` call site passes the
+current requester's role (`requester.role || "admin"`, same fallback convention as
+`hasPanelAccess`).
 
 **Two real bugs hit and fixed this session, worth knowing about if this file gets
 touched again:**
