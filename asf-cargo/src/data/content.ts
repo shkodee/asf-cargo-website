@@ -101,6 +101,24 @@ export const equipment: EquipmentItem[] = [
     image: '/van.png',
   },
   {
+    tag: 'Active',
+    title: 'Reefer',
+    description: 'Temperature-controlled freight — reefer loads that need to stay cold or frozen door-to-door.',
+    image: '/refeer.png',
+  },
+  {
+    tag: 'Active',
+    title: 'RGN',
+    description: 'Removable gooseneck trailer for heavy-haul and oversized loads that need lower deck clearance.',
+    image: '/rgn.png',
+  },
+  {
+    tag: 'Active',
+    title: 'Step Deck',
+    description: "Lower deck height than standard flatbed, for taller freight that won't clear normal legal limits up top.",
+    image: '/stepdeck.png',
+  },
+  {
     tag: 'Coming Soon',
     soon: true,
     title: 'Flatbed',
