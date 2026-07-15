@@ -4,7 +4,7 @@ Your website is static HTML — it can't securely hold secret API keys by itself
 So `worker.js` runs as a small, free relay + bot:
 1. It receives the driver application form POST and DMs a summary to every
    admin/owner/member on the team (via the bot), plus emails it via Resend.
-2. It's also the Telegram bot itself — `/start`, `/whoami`, `/addadmin`, and an
+2. It's also the Telegram bot itself — `/start`, `/whoami`, `/addmember`, and an
    inline admin panel (manage the team, pause/resume notifications, view stats)
    all run through this same Worker.
 
@@ -24,7 +24,7 @@ So `worker.js` runs as a small, free relay + bot:
 
 ## 3. Create the KV namespace (1 min)
 The bot's team list, pause state, and stats live in a Cloudflare KV namespace
-(not a static secret — this lets the bot manage its own team live, via `/addadmin`
+(not a static secret — this lets the bot manage its own team live, via `/addmember`
 and the panel, with no redeploy needed):
 ```
 npx wrangler kv namespace create ASF_BOT_KV
@@ -74,14 +74,14 @@ response. Re-visit this URL any time after redeploying if the webhook ever needs
 re-registering (it doesn't, normally — this is truly one-time).
 
 ## 6. Bootstrap the first owner (1 min)
-KV starts empty, so nobody can use `/addadmin` yet. Seed the first person by hand:
+KV starts empty, so nobody can use `/addmember` yet. Seed the first person by hand:
 ```
 npx wrangler kv key put --remote --namespace-id <your KV id> "admins" \
   '[{"id":"<your numeric telegram id>","role":"owner","addedBy":"system","addedAt":"2026-01-01T00:00:00.000Z"}]'
 ```
 (Get your numeric ID by messaging the bot — it'll reply with it if you're not
 registered yet.) After that, everyone else can be added straight from the bot
-itself with `/addadmin <id>` — no more manual KV edits needed.
+itself with `/addmember <id>` — no more manual KV edits needed.
 
 ## 7. Connect it to your website
 This is already wired up in `src/api/apply.ts` via `APPLICATION_ENDPOINT` — update
@@ -99,21 +99,29 @@ CORS — update it if the site's domain ever changes.
 
 ## Bot commands & roles
 
-| Role | Panel access | Gets notifications |
-|---|---|---|
-| 👑 Owner | Full | Yes |
-| 🛠 Admin | Full (identical to Owner) | Yes |
-| 👤 Member | None | Yes |
+| Role | Panel access | Gets notifications | Removable via 👥 Team |
+|---|---|---|---|
+| 👑 Owner | Full | Yes | Yes |
+| 🛠 Admin | Full (identical to Owner) | Yes | **No — protected, even from Owner** |
+| 👤 Member | None | Yes | Yes |
 
 - `/start` or `/menu` — open the admin panel (Owner/Admin) or see your registration
   status (Member / unregistered)
 - `/whoami` — show your Telegram ID and current role
-- `/addadmin <id>` — (Owner/Admin only) add someone by numeric ID, then pick their
+- `/addmember <id>` — (Owner/Admin only) add someone by numeric ID, then pick their
   role (Owner/Admin/Member) via buttons. They must have messaged the bot at least
   once already, or they won't receive the notification (though they'll still be
   added — it'll just silently fail to greet them until they do message it).
-- **👥 Team** button — view everyone on the team with their role, remove anyone
-  with one tap
+- **👥 Team** button — view everyone on the team with their role. Owner and Member
+  rows have a one-tap remove button; Admin rows don't — admins can't be removed
+  from this panel by anyone, Owner included.
+- **🛣 Lanes** button — (Owner/Admin only) tap any lane to open it, then
+  **✏️ Change Status** (Daily/Weekly/Paused) or **🗑 Remove Lane** (asks for
+  confirmation first — not a single accidental tap away). **+ Add Lane** walks
+  through origin → destination → status; cities are geocoded automatically via
+  OpenStreetMap (free, no key). The website reads this list live via
+  `GET /lanes` — a lane you add here shows up on the site on next page load,
+  no redeploy needed.
 - **📊 Stats** button — applications received today / this week / all-time
 - **⏸ Pause / ▶️ Resume** button — temporarily stop Telegram notifications
   (the form still works and still emails, if configured — this only affects

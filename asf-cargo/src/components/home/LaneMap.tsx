@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { lanes, cityCoordinates, laneCities } from '../../data/content';
 import type { Lane } from '../../types';
 
 function buildArc(
@@ -36,68 +35,68 @@ function buildArc(
   return points;
 }
 
-// Positioning uses real city coordinates (`cityCoordinates`/`laneCities`) so
-// dots sit where the lanes actually run, but every label stays state-level
-// (`lane.origin`/`lane.dest`) — see the note on `cityCoordinates` in
-// content.ts for why the two are kept separate.
 type CityPoint = { key: string; label: string; coordinates: [number, number] };
 
-const cityPoints = new Map<string, CityPoint>();
-lanes.forEach((lane) => {
-  const cities = laneCities[lane.idx];
-  if (!cities) return;
-  if (!cityPoints.has(cities.origin)) {
-    cityPoints.set(cities.origin, {
-      key: cities.origin,
-      label: lane.origin,
-      coordinates: cityCoordinates[cities.origin],
-    });
-  }
-  if (!cityPoints.has(cities.dest)) {
-    cityPoints.set(cities.dest, {
-      key: cities.dest,
-      label: lane.dest,
-      coordinates: cityCoordinates[cities.dest],
-    });
-  }
-});
-const uniqueCityPoints = Array.from(cityPoints.values());
-
-// Lanes sharing the exact same directed origin->dest city pair would
-// otherwise draw as one overlapping arc — give each one in that group a
-// progressively wider bend. Lanes that just reverse an existing pair already
-// bend to the opposite side automatically, since the arc's perpendicular
-// offset flips sign with the direction.
-const laneCurvature = new Map<string, number>();
-{
-  const seen = new Map<string, number>();
-  lanes.forEach((lane) => {
-    const cities = laneCities[lane.idx];
-    if (!cities) return;
-    const key = `${cities.origin}->${cities.dest}`;
-    const count = seen.get(key) ?? 0;
-    seen.set(key, count + 1);
-    laneCurvature.set(lane.idx, 0.18 + count * 0.22);
-  });
+// Points are keyed by coordinates, not city name — the public /lanes API
+// deliberately never sends city text (state-level only, see PROJECT_BRIEF.md),
+// so the map has to dedupe/target points using something that's always
+// present. Labels still show `lane.origin`/`lane.dest` (state text) same as
+// before; only the internal lookup key changed.
+function coordKey(coords: [number, number]): string {
+  return `${coords[0]},${coords[1]}`;
 }
 
-function laneArcCoordinates(lane: Lane): [number, number][] {
-  const cities = laneCities[lane.idx];
-  if (!cities) return [];
-  return buildArc(
-    cityCoordinates[cities.origin],
-    cityCoordinates[cities.dest],
-    laneCurvature.get(lane.idx) ?? 0.18,
-  );
+function useLaneMapData(lanes: Lane[]) {
+  return useMemo(() => {
+    const cityPoints = new Map<string, CityPoint>();
+    lanes.forEach((lane) => {
+      if (lane.originCoords) {
+        const key = coordKey(lane.originCoords);
+        if (!cityPoints.has(key)) {
+          cityPoints.set(key, { key, label: lane.origin, coordinates: lane.originCoords });
+        }
+      }
+      if (lane.destCoords) {
+        const key = coordKey(lane.destCoords);
+        if (!cityPoints.has(key)) {
+          cityPoints.set(key, { key, label: lane.dest, coordinates: lane.destCoords });
+        }
+      }
+    });
+
+    // Lanes sharing the exact same directed origin->dest pair would
+    // otherwise draw as one overlapping arc — give each one in that group a
+    // progressively wider bend. Lanes that just reverse an existing pair
+    // already bend to the opposite side automatically, since the arc's
+    // perpendicular offset flips sign with the direction.
+    const seen = new Map<string, number>();
+    const arcCoordinatesByIdx = new Map<string, [number, number][]>();
+    lanes.forEach((lane) => {
+      if (!lane.originCoords || !lane.destCoords) return;
+      const key = `${coordKey(lane.originCoords)}->${coordKey(lane.destCoords)}`;
+      const count = seen.get(key) ?? 0;
+      seen.set(key, count + 1);
+      arcCoordinatesByIdx.set(lane.idx, buildArc(lane.originCoords, lane.destCoords, 0.18 + count * 0.22));
+    });
+
+    return { uniqueCityPoints: Array.from(cityPoints.values()), arcCoordinatesByIdx };
+  }, [lanes]);
 }
 
-function fullBounds(): maplibregl.LngLatBounds {
+function fullBounds(points: CityPoint[]): maplibregl.LngLatBounds {
   const bounds = new maplibregl.LngLatBounds();
-  uniqueCityPoints.forEach((point) => bounds.extend(point.coordinates));
+  points.forEach((point) => bounds.extend(point.coordinates));
   return bounds;
 }
 
-function applySelection(map: maplibregl.Map, selectedLaneIdx: string | null) {
+function applySelection(
+  map: maplibregl.Map,
+  lanes: Lane[],
+  uniqueCityPoints: CityPoint[],
+  arcCoordinatesByIdx: Map<string, [number, number][]>,
+  selectedLaneIdx: string | null,
+  duration: number,
+) {
   uniqueCityPoints.forEach((point) =>
     map.setFeatureState({ source: 'lane-points', id: point.key }, { emphasized: false, role: 'none' }),
   );
@@ -108,45 +107,46 @@ function applySelection(map: maplibregl.Map, selectedLaneIdx: string | null) {
     highlightSource?.setData({ type: 'FeatureCollection', features: [] });
     map.setPaintProperty('lane-arcs-layer', 'line-opacity', 0.35);
     map.setFilter('lane-points-label', ['in', ['get', 'pointKey'], ['literal', []]]);
-    map.fitBounds(fullBounds(), { padding: 48, duration: 700 });
+    if (uniqueCityPoints.length) {
+      map.fitBounds(fullBounds(uniqueCityPoints), { padding: 48, duration });
+    }
     return;
   }
 
   const lane = lanes.find((l) => l.idx === selectedLaneIdx);
-  const cities = lane ? laneCities[lane.idx] : undefined;
-  if (!lane || !cities) return;
+  const arcCoords = lane ? arcCoordinatesByIdx.get(lane.idx) : undefined;
+  if (!lane || !arcCoords || !lane.originCoords || !lane.destCoords) return;
 
-  map.setFeatureState({ source: 'lane-points', id: cities.origin }, { emphasized: true, role: 'origin' });
-  map.setFeatureState({ source: 'lane-points', id: cities.dest }, { emphasized: true, role: 'dest' });
-  map.setFilter('lane-points-label', ['in', ['get', 'pointKey'], ['literal', [cities.origin, cities.dest]]]);
+  const originKey = coordKey(lane.originCoords);
+  const destKey = coordKey(lane.destCoords);
+  map.setFeatureState({ source: 'lane-points', id: originKey }, { emphasized: true, role: 'origin' });
+  map.setFeatureState({ source: 'lane-points', id: destKey }, { emphasized: true, role: 'dest' });
+  map.setFilter('lane-points-label', ['in', ['get', 'pointKey'], ['literal', [originKey, destKey]]]);
 
   highlightSource?.setData({
     type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        properties: {},
-        geometry: { type: 'LineString', coordinates: laneArcCoordinates(lane) },
-      },
-    ],
+    features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: arcCoords } }],
   });
   map.setPaintProperty('lane-arcs-layer', 'line-opacity', 0.12);
 
   const bounds = new maplibregl.LngLatBounds();
-  bounds.extend(cityCoordinates[cities.origin]);
-  bounds.extend(cityCoordinates[cities.dest]);
+  bounds.extend(lane.originCoords);
+  bounds.extend(lane.destCoords);
   map.fitBounds(bounds, { padding: 90, duration: 700, maxZoom: 6.5 });
 }
 
 type LaneMapProps = {
+  lanes: Lane[];
   selectedLaneIdx: string | null;
   onSelectLane: (idx: string | null) => void;
 };
 
-export default function LaneMap({ selectedLaneIdx, onSelectLane }: LaneMapProps) {
+export default function LaneMap({ lanes, selectedLaneIdx, onSelectLane }: LaneMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
+  const hasFramedRef = useRef(false);
+  const { uniqueCityPoints, arcCoordinatesByIdx } = useLaneMapData(lanes);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -163,29 +163,10 @@ export default function LaneMap({ selectedLaneIdx, onSelectLane }: LaneMapProps)
     mapRef.current = map;
 
     map.on('load', () => {
-      const arcsGeoJSON: GeoJSON.FeatureCollection<GeoJSON.LineString> = {
-        type: 'FeatureCollection',
-        features: lanes.map((lane) => ({
-          type: 'Feature',
-          properties: { idx: lane.idx },
-          geometry: { type: 'LineString', coordinates: laneArcCoordinates(lane) },
-        })),
-      };
+      const emptyLines: GeoJSON.FeatureCollection<GeoJSON.LineString> = { type: 'FeatureCollection', features: [] };
+      const emptyPoints: GeoJSON.FeatureCollection<GeoJSON.Point> = { type: 'FeatureCollection', features: [] };
 
-      // Labels are hidden by default (see the label layer below, which only
-      // shows text for the currently-selected lane's two points) — so unlike
-      // an always-on label set, there's no need to dedupe state names here;
-      // at most two labels are ever visible at once.
-      const pointsGeoJSON: GeoJSON.FeatureCollection<GeoJSON.Point> = {
-        type: 'FeatureCollection',
-        features: uniqueCityPoints.map((point) => ({
-          type: 'Feature',
-          properties: { pointKey: point.key, name: point.label },
-          geometry: { type: 'Point', coordinates: point.coordinates },
-        })),
-      };
-
-      map.addSource('lane-arcs', { type: 'geojson', data: arcsGeoJSON });
+      map.addSource('lane-arcs', { type: 'geojson', data: emptyLines });
       map.addLayer({
         id: 'lane-arcs-layer',
         type: 'line',
@@ -199,10 +180,7 @@ export default function LaneMap({ selectedLaneIdx, onSelectLane }: LaneMapProps)
         },
       });
 
-      map.addSource('lane-highlight', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      });
+      map.addSource('lane-highlight', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       map.addLayer({
         id: 'lane-highlight-glow',
         type: 'line',
@@ -237,7 +215,7 @@ export default function LaneMap({ selectedLaneIdx, onSelectLane }: LaneMapProps)
         },
       });
 
-      map.addSource('lane-points', { type: 'geojson', data: pointsGeoJSON, promoteId: 'pointKey' });
+      map.addSource('lane-points', { type: 'geojson', data: emptyPoints, promoteId: 'pointKey' });
       map.addLayer({
         id: 'lane-points-glow',
         type: 'circle',
@@ -297,7 +275,6 @@ export default function LaneMap({ selectedLaneIdx, onSelectLane }: LaneMapProps)
         },
       });
 
-      map.fitBounds(fullBounds(), { padding: 48, duration: 0 });
       setReady(true);
     });
 
@@ -305,15 +282,45 @@ export default function LaneMap({ selectedLaneIdx, onSelectLane }: LaneMapProps)
       map.remove();
       mapRef.current = null;
       setReady(false);
+      hasFramedRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keeps the map's data in sync with `lanes` (which starts as the static
+  // fallback and gets replaced once the live /lanes fetch resolves, and
+  // could change again if an admin edits lanes via the bot) and re-applies
+  // the current selection whenever either changes.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    applySelection(map, selectedLaneIdx);
-  }, [ready, selectedLaneIdx]);
+
+    const arcsGeoJSON: GeoJSON.FeatureCollection<GeoJSON.LineString> = {
+      type: 'FeatureCollection',
+      features: lanes
+        .filter((lane) => arcCoordinatesByIdx.has(lane.idx))
+        .map((lane) => ({
+          type: 'Feature',
+          properties: { idx: lane.idx },
+          geometry: { type: 'LineString', coordinates: arcCoordinatesByIdx.get(lane.idx) as [number, number][] },
+        })),
+    };
+    const pointsGeoJSON: GeoJSON.FeatureCollection<GeoJSON.Point> = {
+      type: 'FeatureCollection',
+      features: uniqueCityPoints.map((point) => ({
+        type: 'Feature',
+        properties: { pointKey: point.key, name: point.label },
+        geometry: { type: 'Point', coordinates: point.coordinates },
+      })),
+    };
+
+    (map.getSource('lane-arcs') as maplibregl.GeoJSONSource | undefined)?.setData(arcsGeoJSON);
+    (map.getSource('lane-points') as maplibregl.GeoJSONSource | undefined)?.setData(pointsGeoJSON);
+
+    const duration = hasFramedRef.current ? 700 : 0;
+    hasFramedRef.current = true;
+    applySelection(map, lanes, uniqueCityPoints, arcCoordinatesByIdx, selectedLaneIdx, duration);
+  }, [ready, lanes, uniqueCityPoints, arcCoordinatesByIdx, selectedLaneIdx]);
 
   return (
     <div className="lane-map" ref={containerRef}>

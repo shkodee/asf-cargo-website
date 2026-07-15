@@ -27,6 +27,12 @@ export interface Lane {
   origin: string;
   dest: string;
   status: string;
+  /** City-level data for map dot/arc placement — optional since older static
+   * lane data may not have it; never rendered as text (state-level only). */
+  originCity?: string;
+  originCoords?: [number, number];
+  destCity?: string;
+  destCoords?: [number, number];
 }
 
 export interface PayTier {

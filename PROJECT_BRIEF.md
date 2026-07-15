@@ -36,8 +36,15 @@
 - ✅ **Telegram relay rebuilt as a full admin bot** (2026-07-15) — no longer a one-way post to a
   group; now DMs a managed team (Owner/Admin/Member roles) individually, and the bot itself
   supports `/start`, `/whoami`, `/addadmin`, and an inline panel (manage team, pause/resume,
-  stats). See "Telegram admin bot" section below — this is a meaningfully different architecture
-  from the original relay, worth reading before touching `worker/worker.js` again.
+  stats, **and now lanes**). See "Telegram admin bot" section below — this is a meaningfully
+  different architecture from the original relay, worth reading before touching `worker/worker.js`
+  again.
+- ✅ **Lanes are now live-editable from the bot** (2026-07-15) — the `🛣 Lanes` panel button adds
+  (with automatic geocoding), removes, and lists lanes; the site fetches the current list from
+  `GET /lanes` at runtime instead of a static import, so a bot edit shows up on next page load, no
+  redeploy. See "Lane management via the Telegram bot" below. **Caught and fixed a real privacy
+  bug along the way**: the first version of that endpoint leaked exact city names publicly,
+  violating the state-level-only rule — the auto-mode safety classifier blocked that deploy.
 - ✅ **Aurora background added to the hero** (2026-07-15) — a slow-drifting animated red/navy
   gradient effect (`.aurora-bg` in `components.css`, rendered as a child div in `Hero.tsx`), sits
   behind the existing content and grid-line texture, masked to fade from the top-right. Pure CSS,
@@ -186,34 +193,84 @@ hypothetical ones:
   land the section flush against the sticky header, hiding the eyebrow label behind it. Fixed
   with `scroll-padding-top` on `html` (in `base.css`).
 
-## Lane map (Lanes section)
-`src/components/home/LaneMap.tsx`, rendered inside `DispatchBoardSection.tsx` directly above the
-existing dispatch-board table (deliberately **alongside** it, not replacing it — the dispatch
-board is the site's signature visual per "Design system" above, and the map was added as a
-companion, not a substitute).
+## Lanes: live data + map (Lanes section)
+**As of 2026-07-15, lanes are no longer static.** They're managed live from the Telegram bot
+(see "Lane management via the Telegram bot" below) and stored in the relay Worker's KV — the
+site fetches them at runtime via `GET /lanes` on `asf-cargo-relay`, instead of importing a
+build-time array. A bot edit shows up on the site's *next page load*, no rebuild/redeploy needed.
 
-- **Dependency:** `maplibre-gl` (added this session — the one real bundle-size addition to an
-  otherwise React+React-DOM-only site, ~200KB+ gzipped). No Tailwind/shadcn was added: an earlier
-  reference component the user found was shadcn/Tailwind/Next.js-based, so it was ported down to
-  plain MapLibre GL JS calls + plain CSS (`.lane-map` in `components.css`) instead of pulling in a
-  second styling system alongside the site's existing plain-CSS approach.
-- **What it renders:** a static (non-interactive, `interactive: false`), non-clickable dark
-  basemap (Carto's `dark-matter-gl-style`, matching the navy theme) showing a dot at each unique
-  state referenced in `lanes`, connected by curved red arcs for each lane pair — built as two
-  GeoJSON sources/layers (points + arcs), not DOM markers, since nothing here needs to be
-  draggable/clickable/clustered.
-- **Data:** `stateCoordinates` in `src/data/content.ts` — a hardcoded `Record<string, [lng, lat]>`
-  of approximate state-center coordinates for the 7 states currently in `lanes`. **If a new lane
-  introduces a new state, add its coordinates here too** or that state's dot/arc silently won't
-  render (no error, `stateCoordinates[state]` would just be `undefined`).
-- **Known tooling gotcha (not a site bug):** this component's canvas render came back as a solid
-  black box when checked with headless Chrome's `chrome --headless=new --screenshot` CLI flag,
-  even with software WebGL flags (`--use-gl=swiftshader`) and `preserveDrawingBuffer` explicitly
-  set. It renders correctly — confirmed via Playwright (real Chromium automation), which showed
-  the dots/arcs/basemap rendering fine with zero console errors and `gl.getError() === 0`. If a
-  WebGL/canvas element on this site ever looks blank in a `chrome --screenshot` check again,
-  reach for Playwright to verify before assuming it's broken — that CLI flag has a known
-  compositing/readback limitation with canvas content that doesn't reflect real browser behavior.
+- **`src/hooks/useLanes.ts`** — fetches `GET https://asf-cargo-relay.afzaljon0411.workers.dev/lanes`
+  on mount. Starts with `content.ts`'s static `lanes`/`cityCoordinates`/`laneCities` as a fallback
+  (shown immediately, and kept if the fetch ever fails), then replaces it with the live response.
+  Used by both `Hero.tsx` (the "N daily lanes" badge) and `DispatchBoardSection.tsx` (table + map),
+  so there are two independent fetches per page load — acceptable at this data size/volume, not
+  worth the complexity of lifting one shared fetch through `HomePage.tsx`.
+- **`content.ts`'s static `lanes`/`cityCoordinates`/`laneCities`** are now purely the *fallback*
+  data, not the source of truth — editing them no longer changes what's actually live on the site
+  once the bot's KV data loads. They still matter for: the brief pre-fetch flash, and as the
+  reference data the relay Worker's KV was originally seeded with.
+- **`Lane` type** (`src/types/index.ts`) grew optional `originCoords`/`destCoords` (and
+  `originCity`/`destCity`, present on the static fallback and in the bot's own messages, but
+  **deliberately never sent by the public `GET /lanes` API** — see the guardrail below).
+
+**`LaneMap.tsx` architecture (rewritten to be data-driven, not static-import-driven):**
+- All point/arc computation (`useLaneMapData`) is a `useMemo` keyed on the `lanes` prop, not a
+  module-level constant — it has to recompute whenever the live fetch replaces the fallback data.
+- Map points are keyed by **coordinate string** (`"lng,lat"`), not city name — this was a direct
+  consequence of the privacy fix below: once the public API stopped sending city text, the map's
+  internal point-deduplication/targeting couldn't rely on city names being present anymore.
+- Map/style setup happens once (`useEffect` with `[]` deps, sources seeded empty); a second effect
+  keyed on `[ready, lanes, uniqueCityPoints, arcCoordinatesByIdx, selectedLaneIdx]` calls
+  `.setData()` on the existing sources and re-applies the current selection — this is what makes
+  the map redraw when live data arrives after the fallback's initial paint. The very first
+  auto-fit-bounds is instant (`duration: 0`, tracked via a `hasFramedRef`); every fitBounds after
+  that (lane clicks, the reset button) is animated as before.
+- Everything else about the map (dark Carto basemap, dashed low-opacity arcs by default,
+  click-to-focus with bold arc + zoom + PU/DEL color-coded dots + direction arrow, drag-pan +
+  Ctrl/Cmd-scroll-to-zoom) is unchanged from the earlier interactive-map work.
+
+**⚠️ Guardrail that actually got caught by the auto-mode safety classifier, not by us — worth
+internalizing:** the first version of the `GET /lanes` endpoint returned each lane's full KV
+object, including `originCity`/`destCity` (e.g. `"Memphis, TN"`) as plain JSON text. That's a
+direct violation of the client's explicit, previously-established instruction that lane detail is
+**state-level only on public pages** — and a JSON API at a guessable URL is a far easier thing for
+someone to scrape on an ongoing basis than the same data sitting inside a minified JS bundle. The
+classifier blocked the deploy specifically on this. **Fixed:** `handleGetLanes()` in `worker.js`
+strips `originCity`/`destCity` before responding — the public API only ever sends
+`{ idx, origin, dest, status, originCoords, destCoords }`. City text still exists in KV and in the
+bot's own Telegram messages (private, admin-only, not "public pages"), just never over the wire to
+the website. **If this endpoint is ever touched again, re-verify the response has no city
+substrings before deploying** — it's easy to reintroduce by naively spreading the KV lane object.
+
+**Known tooling gotcha (not a site bug, from earlier map work):** this component's canvas render
+came back as a solid black box when checked with headless Chrome's `chrome --headless=new
+--screenshot` CLI flag, even with software WebGL flags. It renders correctly — confirmed via
+Playwright (real Chromium automation). If a WebGL/canvas element on this site ever looks blank in
+a `chrome --screenshot` check again, reach for Playwright to verify before assuming it's broken.
+
+## Lane management via the Telegram bot
+Owners/Admins (not Members — same panel-access rule as team management) can add, remove, and see
+all lanes straight from the bot, no code change needed for a routine lane change:
+
+- **`🛣 Lanes` button** in the main panel — lists every lane as a tappable row
+  (`#idx  origin → dest  (status)`); tapping one opens a **detail view** for that lane with
+  `✏️ Change Status` and `🗑 Remove Lane`, plus `+ Add Lane` and `« Back` in the list view itself.
+  (Originally shipped as one flat list with an inline remove button per lane — redesigned same-day
+  per feedback into list → detail → action, described next.)
+- **Removing a lane requires two taps, not one**: `🗑 Remove Lane` → a confirmation screen
+  (`⚠️ Remove lane #.. ?`) with `✅ Yes, remove it` / `✕ Cancel` → only the "Yes" tap actually
+  deletes. Nothing is destructive on the first tap anywhere in this flow.
+- **`+ Add Lane`** starts a short conversation (state tracked in KV under `pending:<telegramId>`,
+  auto-expires after 10 minutes so an abandoned flow doesn't linger): send the origin as
+  `'City, ST'` → bot geocodes it via **OpenStreetMap's free Nominatim API** (no key, ~1 req/sec
+  limit, a real identifying `User-Agent` is required by their usage policy — see
+  `geocodeCity()`) → same for the destination → tap a status button (Daily/Weekly/Paused) or just
+  type a custom status. On success the lane's assigned the next sequential `idx` and saved to KV.
+- **Nominatim can't find every address** — very small towns sometimes return nothing; the bot
+  reports failure and lets the admin retry with a different phrasing, it doesn't silently guess.
+- **`getLanes`/`saveLanes`** in `worker.js` are the KV read/write pair (key: `"lanes"`, one JSON
+  array, same shape as the seed data below). `nextLaneIdx()` picks the next `idx` by taking the
+  current max and adding one — not `lanes.length + 1`, so it stays correct even after removals.
 
 ## Telegram admin bot (`worker/worker.js`)
 Rebuilt 2026-07-15 from a one-way group-post relay into a real Telegram bot with a
@@ -243,22 +300,29 @@ own team live, no redeploy required:
   (non-honeypot) form submission, powers the Stats view.
 - `profile:<id>` — cached `{ username, firstName }` per Telegram user, captured
   opportunistically on every message/button tap. This is the *only* way the bot
-  ever learns someone's username — `/addadmin` only ever gets a numeric ID, and
+  ever learns someone's username — `/addmember` only ever gets a numeric ID, and
   Telegram has no general "look up a stranger's username" API — so a brand-new
   person's name won't show in the team list until they've messaged the bot at
   least once.
 
 **Role model** — three tiers, stored per-person in the `admins` KV array:
-| Role | Panel access | Gets notifications |
-|---|---|---|
-| Owner | Full | Yes |
-| Admin | Full (**identical** to Owner — deliberate, client's explicit call) | Yes |
-| Member | None | Yes |
+| Role | Panel access | Gets notifications | Removable via 👥 Team panel |
+|---|---|---|---|
+| Owner | Full | Yes | Yes |
+| Admin | Full (**identical** to Owner — deliberate, client's explicit call) | Yes | **No — protected, see below** |
+| Member | None | Yes | Yes |
 
-`/addadmin <id>` (Owner/Admin only) walks through an inline-button role picker
-(Owner / Admin / Member) rather than taking the role as a command argument — chosen
-for a smoother UX per the client's preference for buttons over typed args where
-the option set is small and fixed.
+`/addmember <id>` (Owner/Admin only — command renamed same-day from `/addadmin`, since it adds
+*any* role, not just admins; the role is chosen via buttons after, never a command argument) walks
+through an inline-button role picker (Owner / Admin / Member) — buttons over typed args, per the
+client's preference where the option set is small and fixed.
+
+**Admins can't be removed from the 👥 Team panel by anyone, Owner included** — client instruction,
+added same-day. `buildAdminsView()` simply omits the remove button for any `role === "admin"`
+entry, and `admin:remove:` has a matching server-side check that rejects removing an admin even if
+that callback were ever triggered another way — the UI hiding and the server guard are two
+separate places, **keep both in sync** if this policy ever changes. Owner and Member rows are
+unaffected and still removable normally.
 
 **Two real bugs hit and fixed this session, worth knowing about if this file gets
 touched again:**
@@ -335,10 +399,10 @@ c:\asf-cargo-website\            # git repo root
     │   │   ├── UI/                         # Button.tsx, SectionHeading.tsx, Reveal.tsx
     │   │   ├── home/                       # Hero, PayCard(+Section), DispatchBoard(+Section), LaneMap, LaneRow, EquipmentCard(+Section), RequirementItem, RequirementsSection, ContactCard(+Section), CtaBand
     │   │   └── apply/ApplicationForm.tsx     # includes the co-driver block, see above
-    │   ├── hooks/useScrollReveal.ts
+    │   ├── hooks/useScrollReveal.ts, useLanes.ts   # useLanes fetches live lane data from the relay Worker
     │   ├── api/apply.ts                 # submitApplication() — POSTs to the relay Worker, contract with worker/worker.js
     │   ├── types/index.ts
-    │   ├── data/content.ts               # ALL business copy lives here — single source of truth
+    │   ├── data/content.ts               # ALL business copy lives here — single source of truth (lanes are now the *fallback* only, see "Lanes: live data + map")
     │   └── styles/                       # variables.css, base.css, animations.css, layout.css, components.css, index.css (imports all 5)
     └── worker/                     # NOT part of the Vite build — separate Worker
         ├── worker.js                 # Cloudflare Worker: relays form POST → Telegram + Resend email; honeypot check + CORS allow-list + delivery-failure logging live here

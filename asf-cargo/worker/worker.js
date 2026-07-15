@@ -5,12 +5,14 @@
  *   1. Relay: receives the driver application form POST, then DMs it to every
  *      admin's Telegram (via the bot) and emails it via Resend.
  *   2. Bot: handles the Telegram bot's commands/buttons (/start, /whoami,
- *      /addadmin, and the inline admin panel — manage admins, pause/resume
- *      notifications, view stats). Admins are stored in KV, not a static
- *      secret, so they can be managed live from the bot itself.
+ *      /addmember, and the inline admin panel — manage admins, pause/resume
+ *      notifications, view stats, manage lanes). Admins and lanes are stored
+ *      in KV, not static data, so they can be managed live from the bot.
  *
  * Routes:
  *   POST /                 — the application form's relay endpoint (CORS-protected)
+ *   GET  /lanes             — public, CORS-protected: current lane list as JSON,
+ *                            read by the website at runtime instead of a static import
  *   POST /telegram-webhook — Telegram sends bot updates here (verified via secret token)
  *   GET  /setup-webhook    — one-time: tells Telegram to start sending updates to
  *                            /telegram-webhook (protected by SETUP_SECRET query param)
@@ -37,9 +39,43 @@ export default {
       return handleSetupWebhook(request, url, env);
     }
 
+    if (url.pathname === "/lanes" && request.method === "GET") {
+      return handleGetLanes(request, env);
+    }
+
     return handleApplicationForm(request, env);
   },
 };
+
+function corsHeadersFor(request) {
+  const origin = request.headers.get("Origin");
+  return {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+}
+
+async function handleGetLanes(request, env) {
+  const headers = corsHeadersFor(request);
+  const lanes = await getLanes(env);
+  // Public response is state-level + coordinates only — never the real city
+  // names. City text (`originCity`/`destCity`) exists in KV for the bot's
+  // own admin-only messages, but must never appear on a public page/API,
+  // per the client's explicit instruction (see PROJECT_BRIEF.md).
+  const publicLanes = lanes.map((l) => ({
+    idx: l.idx,
+    origin: l.origin,
+    dest: l.dest,
+    status: l.status,
+    originCoords: l.originCoords,
+    destCoords: l.destCoords,
+  }));
+  return new Response(JSON.stringify({ lanes: publicLanes }), {
+    status: 200,
+    headers: { ...headers, "Content-Type": "application/json" },
+  });
+}
 
 // ============================================================
 // Application form relay (unchanged behavior, just moved into
@@ -147,7 +183,7 @@ async function sendTelegram(env, text) {
   const admins = await getAdmins(env);
   const chatIds = admins.map((a) => a.id);
 
-  if (chatIds.length === 0) throw new Error("No admins configured — use /addadmin in the bot");
+  if (chatIds.length === 0) throw new Error("No team members configured — use /addmember in the bot");
 
   const results = await Promise.allSettled(
     chatIds.map((chat_id) => tgSend(env, chat_id, text))
@@ -222,9 +258,168 @@ async function getStats(env) {
   return { today, week, total: list.length };
 }
 
+// ============================================================
+// KV-backed state: lanes (the live source for the site's Lanes
+// section — the website fetches GET /lanes at runtime instead of
+// importing a static array, so bot edits show up immediately)
+// ============================================================
+
+async function getLanes(env) {
+  const raw = await env.ASF_BOT_KV.get("lanes");
+  return raw ? JSON.parse(raw) : [];
+}
+
+async function saveLanes(env, lanes) {
+  await env.ASF_BOT_KV.put("lanes", JSON.stringify(lanes));
+}
+
+function nextLaneIdx(lanes) {
+  const max = lanes.reduce((m, l) => Math.max(m, parseInt(l.idx, 10) || 0), 0);
+  return String(max + 1).padStart(2, "0");
+}
+
+// Geocodes "City, ST" via OpenStreetMap's free Nominatim API — no API key
+// needed, but their usage policy requires a real identifying User-Agent and
+// caps at ~1 request/sec, which is nowhere near an issue at this bot's volume
+// (an admin adding a lane, at most a few times a month).
+async function geocodeCity(cityState) {
+  const query = encodeURIComponent(`${cityState}, USA`);
+  const res = await fetch(
+    `https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1&countrycodes=us`,
+    { headers: { "User-Agent": "ASFCargoBot/1.0 (https://asfcargollc.com)" } }
+  );
+  if (!res.ok) throw new Error(`Geocoding request failed: ${res.status}`);
+  const results = await res.json();
+  if (!results.length) return null;
+  const { lat, lon } = results[0];
+  return [parseFloat(lon), parseFloat(lat)];
+}
+
+// Best-effort "State" extraction from a "City, ST" string, for the lane's
+// public-facing state-level text (dispatch board + map labels never show
+// the city, only the state — see PROJECT_BRIEF's public-page privacy rule).
+const STATE_NAMES = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
+  CO: "Colorado", CT: "Connecticut", DE: "Delaware", DC: "District of Columbia",
+  FL: "Florida", GA: "Georgia", HI: "Hawaii", ID: "Idaho", IL: "Illinois",
+  IN: "Indiana", IA: "Iowa", KS: "Kansas", KY: "Kentucky", LA: "Louisiana",
+  ME: "Maine", MD: "Maryland", MA: "Massachusetts", MI: "Michigan", MN: "Minnesota",
+  MS: "Mississippi", MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada",
+  NH: "New Hampshire", NJ: "New Jersey", NM: "New Mexico", NY: "New York",
+  NC: "North Carolina", ND: "North Dakota", OH: "Ohio", OK: "Oklahoma", OR: "Oregon",
+  PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina", SD: "South Dakota",
+  TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont", VA: "Virginia",
+  WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming",
+};
+
+function stateNameFromCityState(cityState) {
+  const abbr = cityState.split(",").pop().trim().toUpperCase();
+  return STATE_NAMES[abbr] || abbr;
+}
+
+// ============================================================
+// KV-backed state: pending multi-step bot conversations (e.g. the
+// add-lane flow, which needs two free-text replies in a row). Telegram
+// webhook calls are stateless per-request, so "what step is this admin
+// on" has to be persisted somewhere between messages.
+// ============================================================
+
+async function getPending(env, id) {
+  const raw = await env.ASF_BOT_KV.get(`pending:${id}`);
+  return raw ? JSON.parse(raw) : null;
+}
+
+async function setPending(env, id, state) {
+  // Auto-expires after 10 minutes so an abandoned flow doesn't linger and
+  // confuse a later, unrelated message from the same admin.
+  await env.ASF_BOT_KV.put(`pending:${id}`, JSON.stringify(state), { expirationTtl: 600 });
+}
+
+async function clearPending(env, id) {
+  await env.ASF_BOT_KV.delete(`pending:${id}`);
+}
+
+// Walks an admin through the two free-text replies the add-lane flow needs
+// (origin, then destination) — each gets geocoded immediately so a bad city
+// name is caught right away instead of failing silently later.
+async function handlePendingLaneInput(env, chatId, fromId, text, pending) {
+  if (pending.step === "origin" || pending.step === "dest") {
+    let coords;
+    try {
+      coords = await geocodeCity(text);
+    } catch (err) {
+      console.error("Geocoding error:", err?.message || err);
+      await tgSend(env, chatId, "Geocoding failed — try again in a moment.");
+      return;
+    }
+    if (!coords) {
+      await tgSend(env, chatId, `Couldn't find "${text}" — try again with the format 'City, ST' (e.g. Memphis, TN).`);
+      return;
+    }
+
+    if (pending.step === "origin") {
+      await setPending(env, fromId, {
+        step: "dest",
+        originCity: text,
+        originState: stateNameFromCityState(text),
+        originCoords: coords,
+      });
+      await tgSend(env, chatId, `✅ Origin: ${text}\n\nNow send the destination as 'City, ST'.`);
+      return;
+    }
+
+    await setPending(env, fromId, {
+      ...pending,
+      step: "status",
+      destCity: text,
+      destState: stateNameFromCityState(text),
+      destCoords: coords,
+    });
+    await tgSend(env, chatId, `✅ Destination: ${text}\n\nWhat's the status?`, {
+      inline_keyboard: [
+        [{ text: "Daily", callback_data: "lanestatus:Daily" }],
+        [{ text: "Weekly", callback_data: "lanestatus:Weekly" }],
+        [{ text: "Paused", callback_data: "lanestatus:Paused" }],
+      ],
+    });
+    return;
+  }
+
+  if (pending.step === "status") {
+    // Free-text status typed instead of tapping one of the buttons.
+    await finalizeLane(env, chatId, fromId, { ...pending, status: text });
+  }
+}
+
+async function finalizeLane(env, chatId, fromId, draft) {
+  const lanes = await getLanes(env);
+  const idx = nextLaneIdx(lanes);
+  const lane = {
+    idx,
+    origin: draft.originState,
+    dest: draft.destState,
+    status: draft.status,
+    originCity: draft.originCity,
+    originCoords: draft.originCoords,
+    destCity: draft.destCity,
+    destCoords: draft.destCoords,
+  };
+  lanes.push(lane);
+  await saveLanes(env, lanes);
+  await clearPending(env, fromId);
+
+  const { text, keyboard } = await buildLanesView(env);
+  await tgSend(
+    env,
+    chatId,
+    `✅ Added lane #${idx}: ${lane.origin} → ${lane.dest} (${lane.status})\n\n${text}`,
+    keyboard
+  );
+}
+
 // Cache each Telegram user's username/name whenever they interact with the
 // bot, so the admin list can show "@username" instead of a bare numeric ID —
-// /addadmin only ever supplies an ID, Telegram never hands us a profile for
+// /addmember only ever supplies an ID, Telegram never hands us a profile for
 // it directly, so this is the only way to know who an ID actually belongs to.
 async function upsertUserProfile(env, user) {
   if (!user || !user.id) return;
@@ -259,14 +454,63 @@ async function buildAdminsView(env) {
     : "(none)";
   const keyboard = {
     inline_keyboard: [
-      ...labeled.map((a) => [
-        { text: `✕ Remove ${a.label} (${roleTag(a.role)})`, callback_data: `admin:remove:${a.id}` },
-      ]),
+      // Admins can't be removed from this panel by anyone, Owner included —
+      // no remove button shown for them at all (see `admin:remove:` handler
+      // for the matching server-side guard).
+      ...labeled
+        .filter((a) => a.role !== "admin")
+        .map((a) => [
+          { text: `✕ Remove ${a.label} (${roleTag(a.role)})`, callback_data: `admin:remove:${a.id}` },
+        ]),
       [{ text: "« Back", callback_data: "menu:home" }],
     ],
   };
 
-  return { text: `👥 Current team:\n${listText}\n\nTo add someone: /addadmin [id]`, keyboard };
+  return { text: `👥 Current team:\n${listText}\n\nTo add someone: /addmember [id]`, keyboard };
+}
+
+async function buildLanesView(env) {
+  const lanes = await getLanes(env);
+  const keyboard = {
+    inline_keyboard: [
+      ...lanes.map((l) => [
+        { text: `#${l.idx}  ${l.origin} → ${l.dest}  (${l.status})`, callback_data: `lane:view:${l.idx}` },
+      ]),
+      [{ text: "+ Add Lane", callback_data: "lane:add" }],
+      [{ text: "« Back", callback_data: "menu:home" }],
+    ],
+  };
+  return {
+    text: lanes.length ? "🛣 Current lanes — tap one to edit or remove it:" : "🛣 No lanes yet.",
+    keyboard,
+  };
+}
+
+function laneStatusKeyboard(idx, callbackPrefix) {
+  return {
+    inline_keyboard: [
+      [{ text: "Daily", callback_data: `${callbackPrefix}:${idx}:Daily` }],
+      [{ text: "Weekly", callback_data: `${callbackPrefix}:${idx}:Weekly` }],
+      [{ text: "Paused", callback_data: `${callbackPrefix}:${idx}:Paused` }],
+      [{ text: "« Cancel", callback_data: `lane:view:${idx}` }],
+    ],
+  };
+}
+
+async function buildLaneDetailView(env, idx) {
+  const lanes = await getLanes(env);
+  const lane = lanes.find((l) => l.idx === idx);
+  if (!lane) return null;
+  return {
+    text: `🛣 Lane #${lane.idx}\n${lane.origin} → ${lane.dest}\nStatus: ${lane.status}`,
+    keyboard: {
+      inline_keyboard: [
+        [{ text: "✏️ Change Status", callback_data: `lane:changestatus:${idx}` }],
+        [{ text: "🗑 Remove Lane", callback_data: `lane:confirmremove:${idx}` }],
+        [{ text: "« Back to Lanes", callback_data: "menu:lanes" }],
+      ],
+    },
+  };
 }
 
 // ============================================================
@@ -317,6 +561,7 @@ function mainMenuKeyboard(paused) {
   return {
     inline_keyboard: [
       [{ text: "👥 Team", callback_data: "menu:admins" }],
+      [{ text: "🛣 Lanes", callback_data: "menu:lanes" }],
       [{ text: "📊 Stats", callback_data: "menu:stats" }],
       [{ text: paused ? "▶️ Resume notifications" : "⏸ Pause notifications", callback_data: "menu:toggle_pause" }],
     ],
@@ -380,13 +625,19 @@ async function handleMessage(env, message) {
 
   await upsertUserProfile(env, message.from);
 
+  const pending = await getPending(env, fromId);
+  if (pending && !text.startsWith("/")) {
+    await handlePendingLaneInput(env, chatId, fromId, text, pending);
+    return;
+  }
+
   if (text === "/start" || text === "/menu") {
     const person = await getPerson(env, fromId);
     if (!person) {
       await tgSend(
         env,
         chatId,
-        `Hi! Your Telegram ID is:\n<code>${fromId}</code>\n\nAsk an owner/admin to run <code>/addadmin ${fromId}</code> to give you access.`
+        `Hi! Your Telegram ID is:\n<code>${fromId}</code>\n\nAsk an owner/admin to run <code>/addmember ${fromId}</code> to give you access.`
       );
       return;
     }
@@ -409,7 +660,7 @@ async function handleMessage(env, message) {
     return;
   }
 
-  if (text.startsWith("/addadmin")) {
+  if (text.startsWith("/addmember")) {
     const requester = await getPerson(env, fromId);
     if (!hasPanelAccess(requester)) {
       await tgSend(env, chatId, "You're not authorized to do that.");
@@ -417,7 +668,7 @@ async function handleMessage(env, message) {
     }
     const newId = text.split(/\s+/)[1];
     if (!newId || !/^\d+$/.test(newId)) {
-      await tgSend(env, chatId, "Usage: /addadmin [numeric id]\n(they get their ID by sending /start to this bot)");
+      await tgSend(env, chatId, "Usage: /addmember [numeric id]\n(they get their ID by sending /start to this bot)");
       return;
     }
     const admins = await getAdmins(env);
@@ -482,6 +733,102 @@ async function handleCallbackQuery(env, cq) {
     return;
   }
 
+  if (data === "menu:lanes") {
+    const { text, keyboard } = await buildLanesView(env);
+    await tgEditMessage(env, chatId, messageId, text, keyboard);
+    await tgAnswerCallback(env, cq.id);
+    return;
+  }
+
+  if (data === "lane:add") {
+    await setPending(env, fromId, { step: "origin" });
+    await tgAnswerCallback(env, cq.id);
+    await tgSend(env, chatId, "Send the origin as 'City, ST' (e.g. Memphis, TN).");
+    return;
+  }
+
+  if (data.startsWith("lanestatus:")) {
+    const status = data.slice("lanestatus:".length);
+    const pending = await getPending(env, fromId);
+    if (!pending || pending.step !== "status") {
+      await tgAnswerCallback(env, cq.id, "That add-lane flow already finished or expired.");
+      return;
+    }
+    await finalizeLane(env, chatId, fromId, { ...pending, status });
+    await tgAnswerCallback(env, cq.id, "Added!");
+    return;
+  }
+
+  if (data.startsWith("lane:view:")) {
+    const idx = data.slice("lane:view:".length);
+    const view = await buildLaneDetailView(env, idx);
+    if (!view) {
+      await tgAnswerCallback(env, cq.id, "That lane no longer exists.");
+      return;
+    }
+    await tgEditMessage(env, chatId, messageId, view.text, view.keyboard);
+    await tgAnswerCallback(env, cq.id);
+    return;
+  }
+
+  if (data.startsWith("lane:changestatus:")) {
+    const idx = data.slice("lane:changestatus:".length);
+    await tgEditMessage(env, chatId, messageId, "Pick the new status:", laneStatusKeyboard(idx, "lane:setstatus"));
+    await tgAnswerCallback(env, cq.id);
+    return;
+  }
+
+  if (data.startsWith("lane:setstatus:")) {
+    const [, , idx, status] = data.split(":");
+    const lanes = await getLanes(env);
+    const lane = lanes.find((l) => l.idx === idx);
+    if (!lane) {
+      await tgAnswerCallback(env, cq.id, "That lane no longer exists.");
+      return;
+    }
+    lane.status = status;
+    await saveLanes(env, lanes);
+    const view = await buildLaneDetailView(env, idx);
+    await tgEditMessage(env, chatId, messageId, view.text, view.keyboard);
+    await tgAnswerCallback(env, cq.id, "Status updated.");
+    return;
+  }
+
+  if (data.startsWith("lane:confirmremove:")) {
+    const idx = data.slice("lane:confirmremove:".length);
+    const lanes = await getLanes(env);
+    const lane = lanes.find((l) => l.idx === idx);
+    if (!lane) {
+      await tgAnswerCallback(env, cq.id, "That lane no longer exists.");
+      return;
+    }
+    await tgEditMessage(
+      env,
+      chatId,
+      messageId,
+      `⚠️ Remove lane #${lane.idx}: ${lane.origin} → ${lane.dest}?\nThis can't be undone.`,
+      {
+        inline_keyboard: [
+          [{ text: "✅ Yes, remove it", callback_data: `lane:doremove:${idx}` }],
+          [{ text: "✕ Cancel", callback_data: `lane:view:${idx}` }],
+        ],
+      }
+    );
+    await tgAnswerCallback(env, cq.id);
+    return;
+  }
+
+  if (data.startsWith("lane:doremove:")) {
+    const idx = data.slice("lane:doremove:".length);
+    let lanes = await getLanes(env);
+    lanes = lanes.filter((l) => l.idx !== idx);
+    await saveLanes(env, lanes);
+    const { text, keyboard } = await buildLanesView(env);
+    await tgEditMessage(env, chatId, messageId, text, keyboard);
+    await tgAnswerCallback(env, cq.id, `Removed lane #${idx}`);
+    return;
+  }
+
   if (data === "menu:toggle_pause") {
     const wasPaused = await getPaused(env);
     await setPaused(env, !wasPaused);
@@ -523,6 +870,14 @@ async function handleCallbackQuery(env, cq) {
   if (data.startsWith("admin:remove:")) {
     const targetId = data.slice("admin:remove:".length);
     let admins = await getAdmins(env);
+    const target = admins.find((a) => String(a.id) === targetId);
+    // Server-side guard matching the UI: Admins can't be removed by anyone,
+    // Owner included, even if this callback were ever triggered outside the
+    // normal button (the button itself is already hidden for admin rows).
+    if (target && (target.role || "admin") === "admin") {
+      await tgAnswerCallback(env, cq.id, "Admins can't be removed here.");
+      return;
+    }
     admins = admins.filter((a) => String(a.id) !== targetId);
     await saveAdmins(env, admins);
     const { text, keyboard } = await buildAdminsView(env);
@@ -563,7 +918,7 @@ async function handleSetupWebhook(request, url, env) {
         { command: "start", description: "Open the admin panel (or get your ID)" },
         { command: "menu", description: "Open the admin panel" },
         { command: "whoami", description: "Show your Telegram ID and role" },
-        { command: "addadmin", description: "Add an admin by numeric ID — /addadmin [id]" },
+        { command: "addmember", description: "Add someone by numeric ID — role chosen next" },
       ],
     }),
   });

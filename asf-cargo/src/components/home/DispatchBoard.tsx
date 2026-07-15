@@ -1,13 +1,14 @@
-import { lanes } from '../../data/content';
+import type { Lane } from '../../types';
 import Reveal from '../UI/Reveal';
 import LaneRow from './LaneRow';
 
 type DispatchBoardProps = {
+  lanes: Lane[];
   selectedLaneIdx: string | null;
   onSelectLane: (idx: string | null) => void;
 };
 
-export default function DispatchBoard({ selectedLaneIdx, onSelectLane }: DispatchBoardProps) {
+export default function DispatchBoard({ lanes, selectedLaneIdx, onSelectLane }: DispatchBoardProps) {
   return (
     <Reveal className="board">
       <div className="board-head">

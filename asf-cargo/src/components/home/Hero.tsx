@@ -1,8 +1,10 @@
 import { payTiers, company } from '../../data/content';
+import { useLanes } from '../../hooks/useLanes';
 
 export default function Hero() {
   const solo = payTiers[0];
   const team = payTiers[1];
+  const lanes = useLanes();
 
   return (
     <section className="hero">
@@ -23,7 +25,7 @@ export default function Hero() {
           <div className="hero-badge-row">
             <div className="hero-badge"><b>{solo.rate}$</b>per mile · solo</div>
             <div className="hero-badge"><b>{team.rate}$</b>per mile · team</div>
-            <div className="hero-badge"><b>8</b>daily lanes</div>
+            <div className="hero-badge"><b>{lanes.length}</b>daily lanes</div>
           </div>
         </div>
         <div className="hero-art">

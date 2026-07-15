@@ -91,6 +91,26 @@
       See PROJECT_BRIEF's "Telegram admin bot" section for the architecture, the two real bugs hit
       and fixed along the way (Telegram's "must message the bot first" rule, and a `<...>`
       HTML-parse-mode crash), and which secrets are now orphaned/unused.
+- [x] **Lanes are now bot-editable, live on the site.** `🛣 Lanes` panel button: add (via
+      OpenStreetMap Nominatim geocoding), remove, list. `content.ts`'s `lanes` is now a fallback
+      only — the site fetches `GET /lanes` from the relay Worker at runtime
+      (`src/hooks/useLanes.ts`), so a bot edit shows up on next page load, no redeploy. `LaneMap.tsx`
+      was rewritten to compute its data from the `lanes` prop (`useMemo`) instead of a static
+      import, and to key map points by coordinate instead of city name.
+      **Real privacy bug caught mid-build**: the first version of `GET /lanes` returned exact city
+      names publicly — the auto-mode safety classifier blocked that deploy before it shipped. Fixed
+      by stripping `originCity`/`destCity` from the public response; only `origin`/`dest` (state
+      text) and coordinates go out. See PROJECT_BRIEF's "Lanes: live data + map" section — if this
+      endpoint is touched again, re-verify no city substrings leak before deploying.
+- [x] **Lanes panel redesigned same-day**: flat list-with-inline-remove-buttons → tap a lane to
+      open a detail view (`✏️ Change Status`, `🗑 Remove Lane`), and removal now needs a second
+      confirmation tap (`⚠️ Remove lane #.. ?` → Yes/Cancel) instead of one accidental tap.
+- [x] **`/addadmin` renamed to `/addmember`** — it adds any role (Owner/Admin/Member chosen via
+      buttons after), so "addadmin" was misleading. Same rename across `worker.js`, the
+      registered Telegram command list, and `worker/README.md`.
+- [x] **Admins can no longer be removed from 👥 Team, by anyone (Owner included)** — client
+      instruction. Remove button hidden for admin rows in the UI, plus a matching server-side
+      check in the `admin:remove:` handler. Owner/Member rows unaffected.
 
 ## 🎬 In progress / blocked
 - [ ] **Equipment section scroll animation.** Concept: truck rolls in from the right and settles
