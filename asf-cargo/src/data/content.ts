@@ -73,7 +73,7 @@ export const equipment: EquipmentItem[] = [
     soon: true,
     title: 'Flatbed',
     description: "Flatbed capacity is being added to the fleet soon — reach out if you're a flatbed driver and want to be first in line.",
-    image: '/flatbed.PNG',
+    image: '/flatbed.png',
   },
 ];
 
