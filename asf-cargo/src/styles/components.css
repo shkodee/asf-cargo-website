@@ -129,6 +129,16 @@
 }
 .board-head .dot { width: 8px; height: 8px; border-radius: 50%; background: #3ddc78; display: inline-block; margin-right: 8px; box-shadow: 0 0 8px #3ddc78; animation: pulse 1.8s infinite; }
 
+.board-rows {
+  /* ~54.8px per row (16px+16px padding, 0.88rem/1.55 line-height, 1px border) × 6 rows */
+  max-height: 330px; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.2) transparent;
+}
+.board-rows::-webkit-scrollbar { width: 8px; }
+.board-rows::-webkit-scrollbar-track { background: transparent; }
+.board-rows::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+.board-rows::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
+
 .lane-row {
   display: grid; grid-template-columns: 40px 1fr 34px 1fr 110px; align-items: center;
   gap: 14px; padding: 16px 22px;

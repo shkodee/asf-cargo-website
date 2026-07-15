@@ -119,10 +119,9 @@ export const equipment: EquipmentItem[] = [
     image: '/stepdeck.png',
   },
   {
-    tag: 'Coming Soon',
-    soon: true,
+    tag: 'Active',
     title: 'Flatbed',
-    description: "Flatbed capacity is being added to the fleet soon — reach out if you're a flatbed driver and want to be first in line.",
+    description: 'Open-deck flatbed freight — tarped and secured loads across our lane network.',
     image: '/flatbed.png',
   },
 ];

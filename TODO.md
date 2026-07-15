@@ -13,10 +13,11 @@
 - [ ] **Google Search Console verification + "Request Indexing"** — needs your Google login, I
       can't do this from here. `robots.txt`/`sitemap.xml` are already in place to help once you do.
 
-**Dropped 2026-07-15 (not needed / resolved):** driver testimonials, benefits detail, Flatbed
-activation, Resend email, proper OG image, and the equipment scroll animation are all off the
-table — not pursuing any of these. The stray `photo_2026-07-15_05-05-11.jpg` file has been
-deleted. The owner account (`880712904`) has messaged the bot and can now receive DMs.
+**Dropped 2026-07-15 (not needed / resolved):** driver testimonials, benefits detail, Resend
+email, proper OG image, and the equipment scroll animation are all off the table — not pursuing
+any of these. The stray `photo_2026-07-15_05-05-11.jpg` file has been deleted. The owner account
+(`880712904`) has messaged the bot and can now receive DMs. **Flatbed activation was revisited
+2026-07-16** — no longer dropped, see "Shipped" below.
 
 ## ✅ Shipped 2026-07-15, live now — please test
 
@@ -40,6 +41,9 @@ deleted. The owner account (`880712904`) has messaged the bot and can now receiv
       the bot during this session (`California → Georgia`) showed up correctly in the live API
       response. If the site still doesn't reflect a lane change after this, get specifics (what
       you did, what you expected vs. saw) so it's not guesswork next time.
+- [x] **Reefer, RGN, Step Deck added as new equipment types** (2026-07-16) — client supplied the
+      photos, confirmed all active (no "coming soon" tag).
+- [x] **Flatbed flipped from "Coming Soon" to active** (2026-07-16, client instruction).
 
 ## 🔒 Security posture (reference, not a to-do)
 

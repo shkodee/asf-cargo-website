@@ -192,9 +192,10 @@ CORS lock-down in `worker/worker.js` is also done — see TODO.md.
 - **Dispatch phone:** +1 (412) 588-1683
 - **MC#:** 1578558
 - **DOT#:** 4125298
-- **Freight types:** Power-only, Dry Van, Reefer, RGN, Step Deck (active). Flatbed — coming
-  soon, not yet active. Reefer/RGN/Step Deck added 2026-07-16 — client supplied the equipment
-  photos and confirmed all three are active now, no "coming soon" tag.
+- **Freight types:** Power-only, Dry Van, Reefer, RGN, Step Deck, Flatbed — all active.
+  Reefer/RGN/Step Deck added 2026-07-16 (client supplied the photos). Flatbed flipped from
+  "Coming Soon" to active the same day, per explicit client instruction — supersedes the
+  "Dropped 2026-07-15" note above, which no longer applies to Flatbed.
 - **Pay:**
   - Solo drivers: $0.65–$0.75/mile (starting rate for experienced drivers)
   - Team drivers: up to $1.00/mile, split per truck
