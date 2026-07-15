@@ -81,10 +81,12 @@
   activation, Resend email, proper OG image, equipment scroll animation.
 - ✅ **Owner account (`880712904`) has now messaged the bot** — can receive DMs, no longer blocked.
 - ✅ **Stray `photo_2026-07-15_05-05-11.jpg` deleted** from `public/`.
-- ✅ **CDL photo/document upload — live** (R2 enabled on the account 2026-07-15, bucket
-  `asf-cargo-cdl-docs` created, relay Worker redeployed with the binding). See its own section
-  below ("CDL document upload") for the full architecture. Awaiting the client's own real-world
-  test submission to confirm the Telegram "View CDL Document" flow end-to-end.
+- ✅ **CDL photo/document upload — live, confirmed working end-to-end** (client submitted a real
+  test application 2026-07-16 and confirmed the team got the notification + document). R2
+  enabled on the account 2026-07-15, bucket `asf-cargo-cdl-docs` created, relay Worker
+  redeployed with the binding. **Changed same day per client request:** the document now
+  auto-sends right after the text notification instead of requiring a button tap — see its own
+  section below ("CDL document upload") for the current architecture.
 - ✅ **Form validation tightened — live.** Phone now auto-formats and enforces 10 digits; email
   format validated when filled in; city fields (primary + co-driver) must match the existing
   autocomplete list instead of accepting free text. `ApplicationForm.tsx`.
@@ -106,6 +108,15 @@
   confirmed working (a lane added via the bot mid-session showed up correctly through the API),
   so this addresses staleness/caching as the most likely remaining explanation, not a mechanism
   rewrite.
+- ✅ **Reefer, RGN, Step Deck added as new equipment types + Flatbed activated** (2026-07-16) —
+  client supplied the three new photos (`public/refeer.png`, `rgn.png`, `stepdeck.png`) and
+  confirmed all active, no "coming soon" tag. Flatbed flipped from "Coming Soon" to active the
+  same day per explicit client instruction. `equipment` array in `src/data/content.ts`.
+- ✅ **Dispatch board's lane list now scrolls past 6 rows** (2026-07-16) — `.board-rows` wrapper
+  div in `DispatchBoard.tsx` with `max-height: 330px; overflow-y: auto` in `components.css`, so
+  the table stays a fixed, usable size as more lanes get added instead of growing indefinitely.
+  Board header/footer stay outside the scrolling area.
+- ✅ **Logo updated** (2026-07-16, client-supplied replacement file at `public/logo.png`).
 
 ## What this is
 A recruiting/informational website for a trucking company, built to attract CDL-A drivers
@@ -446,7 +457,7 @@ three issues, all deployed and verified live the same day:
 outbound API calls, never logged/echoed, `npm audit` reports 0 vulnerabilities, and there's no
 SQL/NoSQL injection surface (everything is KV key/value, no query language).
 
-## CDL document upload (application form) — live 2026-07-15
+## CDL document upload (application form) — live 2026-07-15/16, confirmed working end-to-end
 Optional file field on the apply form (`ApplicationForm.tsx`) for a CDL photo or scanned
 document — JPEG/PNG/WEBP/PDF, 8MB cap, validated both client-side (immediate feedback) and
 server-side (`worker.js`, since the client check is trivially bypassable).
@@ -460,27 +471,30 @@ keeps the bucket private with no public access at all:
   on this request** — the browser needs to set its own multipart boundary.
 - `handleApplicationForm()` in `worker.js` validates the file (size/MIME type), uploads it to the
   `CDL_BUCKET` R2 binding under a random key, and stores a mapping (`clddoc:<shortId>` → R2 key +
-  filename + content type) in the existing `ASF_BOT_KV` namespace. Only this short opaque ID
-  (never a URL) goes into the Telegram message.
-- The team's notification gets a "📎 View CDL Document" inline button
-  (`callback_data: viewdoc:<shortId>`). Tapping it has the bot fetch the object from R2 and
-  re-send it as a real Telegram document attachment (`tgSendDocument()`) — the file bytes only
-  ever move R2 → Worker → Telegram, never through a browser-accessible link.
+  filename + content type) in the existing `ASF_BOT_KV` namespace.
+- **The document auto-sends right after the text notification** (changed 2026-07-16 per client
+  request — originally required tapping a button first). `sendTelegram()` in `worker.js` fetches
+  the file from R2 **once**, then for each recipient: sends the text (`tgSend()`), then the file
+  (`tgSendDocument()`) as a real Telegram document attachment right after. The file bytes only
+  ever move R2 → Worker → Telegram, never through a browser-accessible link. A "📎 Resend CDL
+  Document" inline button (`callback_data: viewdoc:<shortId>`) stays on the text message as a
+  manual fallback — **a failed auto-send doesn't count against overall delivery success**, since
+  the recipient still got the full text either way (see the `try/catch` around the
+  `tgSendDocument()` call inside `sendTelegram()`'s per-recipient loop).
 - **Authorization deliberately isn't limited to Owner/Admin panel access** — any registered team
-  member (Members included) can tap the button, since Members already receive the full
-  applicant text (name, phone, CDL number, etc.) in the same notification. Gating the photo
-  specifically to a smaller group than the rest of the application data wouldn't add real
-  protection. See the `viewdoc:` handling at the top of `handleCallbackQuery()` — it runs before
-  the general `hasPanelAccess()` gate that the rest of the panel callbacks use.
+  member (Members included) can tap the resend button, since Members already receive the full
+  applicant text (name, phone, CDL number, etc.) and the auto-sent document in the same
+  notification. Gating the photo specifically to a smaller group than the rest of the
+  application data wouldn't add real protection. See the `viewdoc:` handling at the top of
+  `handleCallbackQuery()` — it runs before the general `hasPanelAccess()` gate that the rest of
+  the panel callbacks use.
 
 **R2 enabled on the account 2026-07-15** (client action, via dashboard — first-time R2
 enablement has no CLI/API path, `npx wrangler r2 bucket create` fails with `[code: 10042]` until
 this is done). Bucket `asf-cargo-cdl-docs` created and the relay Worker redeployed with the
-`CDL_BUCKET` binding — confirmed via `wrangler r2 bucket info` (0 objects, ready) and a live
-multipart smoke test against `POST /` (using the honeypot field so it didn't trigger a real
-Telegram DM). **Not yet verified: an actual end-to-end submission with a real file**, which
-needs to go through Telegram for real — left for the client to do via the live form rather than
-triggering an unsolicited test notification to the team.
+`CDL_BUCKET` binding. **Confirmed working end-to-end 2026-07-16** — client submitted a real test
+application with a CDL file attached and confirmed the team received both the text notification
+and the auto-sent document.
 
 ## Co-driver feature (application form)
 When **Team Driver** is selected as Position, a consolidated block appears (Position, "Do you
