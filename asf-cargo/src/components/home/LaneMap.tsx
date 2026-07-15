@@ -99,14 +99,17 @@ function fullBounds(): maplibregl.LngLatBounds {
 
 function applySelection(map: maplibregl.Map, selectedLaneIdx: string | null) {
   uniqueCityPoints.forEach((point) =>
-    map.setFeatureState({ source: 'lane-points', id: point.key }, { emphasized: false }),
+    map.setFeatureState({ source: 'lane-points', id: point.key }, { emphasized: false, role: 'none' }),
   );
 
   const highlightSource = map.getSource('lane-highlight') as maplibregl.GeoJSONSource | undefined;
+  const noMatchFilter: maplibregl.FilterSpecification = ['==', ['get', 'pointKey'], '__none__'];
 
   if (!selectedLaneIdx) {
     highlightSource?.setData({ type: 'FeatureCollection', features: [] });
     map.setPaintProperty('lane-arcs-layer', 'line-opacity', 0.35);
+    map.setFilter('lane-points-label-origin', noMatchFilter);
+    map.setFilter('lane-points-label-dest', noMatchFilter);
     map.fitBounds(fullBounds(), { padding: 48, duration: 700 });
     return;
   }
@@ -115,8 +118,10 @@ function applySelection(map: maplibregl.Map, selectedLaneIdx: string | null) {
   const cities = lane ? laneCities[lane.idx] : undefined;
   if (!lane || !cities) return;
 
-  map.setFeatureState({ source: 'lane-points', id: cities.origin }, { emphasized: true });
-  map.setFeatureState({ source: 'lane-points', id: cities.dest }, { emphasized: true });
+  map.setFeatureState({ source: 'lane-points', id: cities.origin }, { emphasized: true, role: 'origin' });
+  map.setFeatureState({ source: 'lane-points', id: cities.dest }, { emphasized: true, role: 'dest' });
+  map.setFilter('lane-points-label-origin', ['==', ['get', 'pointKey'], cities.origin]);
+  map.setFilter('lane-points-label-dest', ['==', ['get', 'pointKey'], cities.dest]);
 
   highlightSource?.setData({
     type: 'FeatureCollection',
@@ -154,15 +159,13 @@ export default function LaneMap({ selectedLaneIdx, onSelectLane }: LaneMapProps)
       style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
       attributionControl: false,
       cooperativeGestures: true,
-      dragRotate: true,
+      dragRotate: false,
       pitchWithRotate: false,
       touchPitch: false,
     });
     mapRef.current = map;
 
     map.on('load', () => {
-      map.setProjection({ type: 'globe' });
-
       const arcsGeoJSON: GeoJSON.FeatureCollection<GeoJSON.LineString> = {
         type: 'FeatureCollection',
         features: lanes.map((lane) => ({
@@ -172,21 +175,17 @@ export default function LaneMap({ selectedLaneIdx, onSelectLane }: LaneMapProps)
         })),
       };
 
-      // Two points can share the same state label (e.g. Middletown, PA and
-      // Carlisle, PA are both "Pennsylvania") — only label the first one so
-      // the text doesn't overlap itself when the dots sit close together.
-      const seenLabels = new Set<string>();
+      // Labels are hidden by default (see the label layer below, which only
+      // shows text for the currently-selected lane's two points) — so unlike
+      // an always-on label set, there's no need to dedupe state names here;
+      // at most two labels are ever visible at once.
       const pointsGeoJSON: GeoJSON.FeatureCollection<GeoJSON.Point> = {
         type: 'FeatureCollection',
-        features: uniqueCityPoints.map((point) => {
-          const showLabel = !seenLabels.has(point.label);
-          seenLabels.add(point.label);
-          return {
-            type: 'Feature',
-            properties: { pointKey: point.key, name: showLabel ? point.label : '' },
-            geometry: { type: 'Point', coordinates: point.coordinates },
-          };
-        }),
+        features: uniqueCityPoints.map((point) => ({
+          type: 'Feature',
+          properties: { pointKey: point.key, name: point.label },
+          geometry: { type: 'Point', coordinates: point.coordinates },
+        })),
       };
 
       map.addSource('lane-arcs', { type: 'geojson', data: arcsGeoJSON });
@@ -221,6 +220,25 @@ export default function LaneMap({ selectedLaneIdx, onSelectLane }: LaneMapProps)
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': '#ff6b7a', 'line-width': 3.5, 'line-opacity': 1 },
       });
+      map.addLayer({
+        id: 'lane-highlight-arrow',
+        type: 'symbol',
+        source: 'lane-highlight',
+        layout: {
+          'symbol-placement': 'line-center',
+          'text-field': '>',
+          'text-font': ['Open Sans Bold', 'Noto Sans Regular'],
+          'text-size': 22,
+          'text-rotation-alignment': 'map',
+          'text-keep-upright': false,
+          'text-allow-overlap': true,
+        },
+        paint: {
+          'text-color': '#ff6b7a',
+          'text-halo-color': '#0c1c34',
+          'text-halo-width': 1.6,
+        },
+      });
 
       map.addSource('lane-points', { type: 'geojson', data: pointsGeoJSON, promoteId: 'pointKey' });
       map.addLayer({
@@ -229,8 +247,13 @@ export default function LaneMap({ selectedLaneIdx, onSelectLane }: LaneMapProps)
         source: 'lane-points',
         paint: {
           'circle-radius': ['case', ['boolean', ['feature-state', 'emphasized'], false], 17, 11],
-          'circle-color': '#c41230',
-          'circle-opacity': ['case', ['boolean', ['feature-state', 'emphasized'], false], 0.3, 0.18],
+          'circle-color': [
+            'case',
+            ['==', ['feature-state', 'role'], 'origin'], '#3ddc78',
+            ['==', ['feature-state', 'role'], 'dest'], '#ff6b7a',
+            '#c41230',
+          ],
+          'circle-opacity': ['case', ['boolean', ['feature-state', 'emphasized'], false], 0.35, 0.18],
         },
       });
       map.addLayer({
@@ -239,17 +262,52 @@ export default function LaneMap({ selectedLaneIdx, onSelectLane }: LaneMapProps)
         source: 'lane-points',
         paint: {
           'circle-radius': ['case', ['boolean', ['feature-state', 'emphasized'], false], 6, 4.5],
-          'circle-color': '#f3efe6',
+          'circle-color': [
+            'case',
+            ['==', ['feature-state', 'role'], 'origin'], '#3ddc78',
+            ['==', ['feature-state', 'role'], 'dest'], '#ff6b7a',
+            '#f3efe6',
+          ],
           'circle-stroke-width': 2,
-          'circle-stroke-color': '#c41230',
+          'circle-stroke-color': [
+            'case',
+            ['boolean', ['feature-state', 'emphasized'], false], '#ffffff',
+            '#c41230',
+          ],
+        },
+      });
+      // feature-state can't drive `text-field` (layout properties don't
+      // support it, only paint properties do) — so instead of one
+      // feature-state-driven label layer, use two layers filtered by
+      // pointKey via setFilter() in applySelection, one per role. Both
+      // start filtered to match nothing, so no labels show by default.
+      const noMatchFilter: maplibregl.FilterSpecification = ['==', ['get', 'pointKey'], '__none__'];
+      map.addLayer({
+        id: 'lane-points-label-origin',
+        type: 'symbol',
+        source: 'lane-points',
+        filter: noMatchFilter,
+        layout: {
+          'text-field': ['concat', 'PU · ', ['get', 'name']],
+          'text-font': ['Open Sans Regular', 'Noto Sans Regular'],
+          'text-size': 11,
+          'text-offset': [0, 1.1],
+          'text-anchor': 'top',
+          'text-allow-overlap': true,
+        },
+        paint: {
+          'text-color': '#f3efe6',
+          'text-halo-color': '#0c1c34',
+          'text-halo-width': 1.4,
         },
       });
       map.addLayer({
-        id: 'lane-points-label',
+        id: 'lane-points-label-dest',
         type: 'symbol',
         source: 'lane-points',
+        filter: noMatchFilter,
         layout: {
-          'text-field': ['get', 'name'],
+          'text-field': ['concat', 'DEL · ', ['get', 'name']],
           'text-font': ['Open Sans Regular', 'Noto Sans Regular'],
           'text-size': 11,
           'text-offset': [0, 1.1],
