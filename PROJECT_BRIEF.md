@@ -51,12 +51,8 @@
   no new dependency. Previewed live first via an Artifact (with an intensity toggle) before
   building — client picked "Medium" intensity; the CSS's `opacity: 0.55` on `.aurora-bg::before`/
   `::after` is that value if it ever needs adjusting.
-- 🎬 **Equipment scroll animation — in progress, blocked on an external video.** User is having
-  another AI generate a reference video (truck rolls in, van/flatbed take turns attaching to it
-  as you scroll) from a prompt we wrote together; once that video comes back, the next step is
-  translating its timing into a real GSAP ScrollTrigger implementation on the Equipment section.
-  No code for this exists yet — don't start building it without the reference video or explicit
-  go-ahead, since the phase timing/positions are meant to come from what that video actually shows.
+- ❌ **Equipment scroll animation — dropped (2026-07-15).** No longer pursuing; no code was ever
+  written for this, nothing to revert.
 - ✅ **Equipment photo lightbox** (2026-07-15) — `EquipmentLightbox.tsx`, triggered by clicking a
   card's image (now a real `<button>` for keyboard/focus support, with a hover zoom + "Click to
   enlarge" hint). Opens a fade/scale-in overlay with the full image plus tag/title/description;
@@ -78,9 +74,13 @@
   message, lightweight KV-based rate limiting on the two public endpoints, and `SETUP_SECRET`
   moved from a URL query param to a header. All three deployed and verified live. See "Security
   hardening pass" section below.
-- ⏳ **Not done yet:** Resend email, Cloudflare Web Analytics (needs a dashboard-generated token
-  — no CLI path for this), CDL photo upload (deliberately deferred, needs R2), and content items
-  that need client input (see "Open items" below).
+- ⏳ **Not done yet:** Cloudflare Web Analytics (needs a dashboard-generated token — no CLI path
+  for this), Google Search Console verification, and CDL photo upload (deliberately deferred,
+  needs R2). See "Open items" below.
+- ❌ **Dropped 2026-07-15, not pursuing:** driver testimonials, benefits detail, Flatbed
+  activation, Resend email, proper OG image, equipment scroll animation.
+- ✅ **Owner account (`880712904`) has now messaged the bot** — can receive DMs, no longer blocked.
+- ✅ **Stray `photo_2026-07-15_05-05-11.jpg` deleted** from `public/`.
 
 ## What this is
 A recruiting/informational website for a trucking company, built to attract CDL-A drivers
@@ -503,14 +503,13 @@ test submission with that field populated doesn't show up anywhere, that's corre
 a bug.
 
 ## Open items / not yet built
-**See `TODO.md` for the full, actively-maintained backlog** (bugs, features, content needed from
-client). As of 2026-07-15, both previously-urgent items (relay worker redeploy, domain attach)
-are done and verified live. What's left:
+**See `TODO.md` for the full, actively-maintained backlog.** As of 2026-07-15, what's left:
 - [ ] Cloudflare Web Analytics — needs a dashboard-generated token, no CLI path for it.
+- [ ] Google Search Console verification + "Request Indexing" — needs client's Google login.
 - [ ] CDL photo/document upload — deliberately deferred, needs an R2 bucket (new infra).
-- [ ] Resend email secrets, if email alongside Telegram is wanted.
-- [ ] Content-dependent items (testimonials, equipment photos, benefits detail, flatbed
-      activation, a proper 1200×630 OG image) — all need client input, see TODO.md.
+
+Testimonials, benefits detail, Flatbed activation, Resend email, the OG image, and the equipment
+scroll animation were all explicitly dropped 2026-07-15 — not on the backlog anymore.
 
 ## Guardrails for future work
 - Don't invent statistics, benefits, awards, or testimonials that weren't provided by the client.
