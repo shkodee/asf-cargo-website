@@ -103,13 +103,11 @@ function applySelection(map: maplibregl.Map, selectedLaneIdx: string | null) {
   );
 
   const highlightSource = map.getSource('lane-highlight') as maplibregl.GeoJSONSource | undefined;
-  const noMatchFilter: maplibregl.FilterSpecification = ['==', ['get', 'pointKey'], '__none__'];
 
   if (!selectedLaneIdx) {
     highlightSource?.setData({ type: 'FeatureCollection', features: [] });
     map.setPaintProperty('lane-arcs-layer', 'line-opacity', 0.35);
-    map.setFilter('lane-points-label-origin', noMatchFilter);
-    map.setFilter('lane-points-label-dest', noMatchFilter);
+    map.setFilter('lane-points-label', ['in', ['get', 'pointKey'], ['literal', []]]);
     map.fitBounds(fullBounds(), { padding: 48, duration: 700 });
     return;
   }
@@ -120,8 +118,7 @@ function applySelection(map: maplibregl.Map, selectedLaneIdx: string | null) {
 
   map.setFeatureState({ source: 'lane-points', id: cities.origin }, { emphasized: true, role: 'origin' });
   map.setFeatureState({ source: 'lane-points', id: cities.dest }, { emphasized: true, role: 'dest' });
-  map.setFilter('lane-points-label-origin', ['==', ['get', 'pointKey'], cities.origin]);
-  map.setFilter('lane-points-label-dest', ['==', ['get', 'pointKey'], cities.dest]);
+  map.setFilter('lane-points-label', ['in', ['get', 'pointKey'], ['literal', [cities.origin, cities.dest]]]);
 
   highlightSource?.setData({
     type: 'FeatureCollection',
@@ -277,37 +274,16 @@ export default function LaneMap({ selectedLaneIdx, onSelectLane }: LaneMapProps)
         },
       });
       // feature-state can't drive `text-field` (layout properties don't
-      // support it, only paint properties do) — so instead of one
-      // feature-state-driven label layer, use two layers filtered by
-      // pointKey via setFilter() in applySelection, one per role. Both
-      // start filtered to match nothing, so no labels show by default.
-      const noMatchFilter: maplibregl.FilterSpecification = ['==', ['get', 'pointKey'], '__none__'];
+      // support it, only paint properties do) — so label visibility is
+      // controlled via setFilter() in applySelection instead. Starts
+      // filtered to match nothing, so no labels show by default.
       map.addLayer({
-        id: 'lane-points-label-origin',
+        id: 'lane-points-label',
         type: 'symbol',
         source: 'lane-points',
-        filter: noMatchFilter,
+        filter: ['in', ['get', 'pointKey'], ['literal', []]],
         layout: {
-          'text-field': ['concat', 'PU · ', ['get', 'name']],
-          'text-font': ['Open Sans Regular', 'Noto Sans Regular'],
-          'text-size': 11,
-          'text-offset': [0, 1.1],
-          'text-anchor': 'top',
-          'text-allow-overlap': true,
-        },
-        paint: {
-          'text-color': '#f3efe6',
-          'text-halo-color': '#0c1c34',
-          'text-halo-width': 1.4,
-        },
-      });
-      map.addLayer({
-        id: 'lane-points-label-dest',
-        type: 'symbol',
-        source: 'lane-points',
-        filter: noMatchFilter,
-        layout: {
-          'text-field': ['concat', 'DEL · ', ['get', 'name']],
+          'text-field': ['get', 'name'],
           'text-font': ['Open Sans Regular', 'Noto Sans Regular'],
           'text-size': 11,
           'text-offset': [0, 1.1],
