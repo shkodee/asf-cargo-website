@@ -126,6 +126,13 @@
   .lane-row .status { display: none; }
 }
 
+.lane-map {
+  position: relative; height: 320px; border-radius: 4px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.08); margin-bottom: 18px;
+}
+.lane-map .maplibregl-ctrl-logo, .lane-map .maplibregl-ctrl-attrib { display: none; }
+@media (max-width: 640px) { .lane-map { height: 220px; } }
+
 /* ===== Equipment ===== */
 .equip-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
 .equip-card {

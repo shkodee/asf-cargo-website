@@ -1,5 +1,6 @@
 import SectionHeading from '../UI/SectionHeading';
 import DispatchBoard from './DispatchBoard';
+import LaneMap from './LaneMap';
 
 export default function DispatchBoardSection() {
   return (
@@ -12,6 +13,7 @@ export default function DispatchBoardSection() {
         >
           8 lanes, running daily.
         </SectionHeading>
+        <LaneMap />
         <DispatchBoard />
       </div>
     </section>

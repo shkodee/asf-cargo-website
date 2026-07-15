@@ -25,6 +25,20 @@
   manual dashboard paste-and-deploy for `asf-cargo-relay`. See "Infrastructure & accounts".
 - ✅ **Antispam honeypot**, **city/state autocomplete**, **Google Jobs JSON-LD**, **OG/Twitter
   tags**, and a **custom 404 page** all shipped this session — see TODO.md for details on each.
+- ✅ **Equipment photos** added to the Power-Only/Dry Van/Flatbed cards (`public/truck.png`,
+  `van.png`, `flatbed.png`) — see "Design system" note below on the mismatched-casing bug this hit.
+- ✅ **`robots.txt` + `sitemap.xml`** added to `public/` — helps crawlers discover both pages
+  faster on this brand-new domain. Google indexing itself still needs Search Console
+  verification + "Request Indexing" (a Google-account action, not something doable from this repo).
+- ✅ **Lane route map** added to the Lanes section (`src/components/home/LaneMap.tsx`), sitting
+  above the existing dispatch-board table, not replacing it — see "Lane map" section below for
+  how it's built and what to know before touching it again.
+- 🎬 **Equipment scroll animation — in progress, blocked on an external video.** User is having
+  another AI generate a reference video (truck rolls in, van/flatbed take turns attaching to it
+  as you scroll) from a prompt we wrote together; once that video comes back, the next step is
+  translating its timing into a real GSAP ScrollTrigger implementation on the Equipment section.
+  No code for this exists yet — don't start building it without the reference video or explicit
+  go-ahead, since the phase timing/positions are meant to come from what that video actually shows.
 - ⏳ **Not done yet:** Resend email, Cloudflare Web Analytics (needs a dashboard-generated token
   — no CLI path for this), CDL photo upload (deliberately deferred, needs R2), and content items
   that need client input (see "Open items" below).
@@ -161,6 +175,35 @@ hypothetical ones:
   land the section flush against the sticky header, hiding the eyebrow label behind it. Fixed
   with `scroll-padding-top` on `html` (in `base.css`).
 
+## Lane map (Lanes section)
+`src/components/home/LaneMap.tsx`, rendered inside `DispatchBoardSection.tsx` directly above the
+existing dispatch-board table (deliberately **alongside** it, not replacing it — the dispatch
+board is the site's signature visual per "Design system" above, and the map was added as a
+companion, not a substitute).
+
+- **Dependency:** `maplibre-gl` (added this session — the one real bundle-size addition to an
+  otherwise React+React-DOM-only site, ~200KB+ gzipped). No Tailwind/shadcn was added: an earlier
+  reference component the user found was shadcn/Tailwind/Next.js-based, so it was ported down to
+  plain MapLibre GL JS calls + plain CSS (`.lane-map` in `components.css`) instead of pulling in a
+  second styling system alongside the site's existing plain-CSS approach.
+- **What it renders:** a static (non-interactive, `interactive: false`), non-clickable dark
+  basemap (Carto's `dark-matter-gl-style`, matching the navy theme) showing a dot at each unique
+  state referenced in `lanes`, connected by curved red arcs for each lane pair — built as two
+  GeoJSON sources/layers (points + arcs), not DOM markers, since nothing here needs to be
+  draggable/clickable/clustered.
+- **Data:** `stateCoordinates` in `src/data/content.ts` — a hardcoded `Record<string, [lng, lat]>`
+  of approximate state-center coordinates for the 7 states currently in `lanes`. **If a new lane
+  introduces a new state, add its coordinates here too** or that state's dot/arc silently won't
+  render (no error, `stateCoordinates[state]` would just be `undefined`).
+- **Known tooling gotcha (not a site bug):** this component's canvas render came back as a solid
+  black box when checked with headless Chrome's `chrome --headless=new --screenshot` CLI flag,
+  even with software WebGL flags (`--use-gl=swiftshader`) and `preserveDrawingBuffer` explicitly
+  set. It renders correctly — confirmed via Playwright (real Chromium automation), which showed
+  the dots/arcs/basemap rendering fine with zero console errors and `gl.getError() === 0`. If a
+  WebGL/canvas element on this site ever looks blank in a `chrome --screenshot` check again,
+  reach for Playwright to verify before assuming it's broken — that CLI flag has a known
+  compositing/readback limitation with canvas content that doesn't reflect real browser behavior.
+
 ## Co-driver feature (application form)
 When **Team Driver** is selected as Position, a consolidated block appears (Position, "Do you
 have a co-driver?", and — if "I already have one" — co-driver info fields) positioned right
@@ -200,7 +243,10 @@ c:\asf-cargo-website\            # git repo root
     ├── package.json / vite.config.ts / tsconfig*.json
     ├── wrangler.jsonc              # Cloudflare Workers static-assets config — assets.directory: "./dist"
     ├── public/
-    │   └── logo.png                 # bordered/transparent badge, user-supplied, served at /logo.png
+    │   ├── logo.png                 # bordered/transparent badge, user-supplied, served at /logo.png
+    │   ├── truck.png / van.png / flatbed.png   # equipment card photos, user-supplied
+    │   ├── robots.txt               # points crawlers at sitemap.xml
+    │   └── sitemap.xml              # lists / and /apply.html
     ├── dist/                       # BUILD OUTPUT, gitignored — what actually gets deployed
     ├── src/
     │   ├── main.tsx / apply-main.tsx / notfound-main.tsx   # entry points, one per HTML page
@@ -209,7 +255,7 @@ c:\asf-cargo-website\            # git repo root
     │   ├── components/
     │   │   ├── layout/                    # Header.tsx, Footer.tsx, ScrollProgressBar.tsx
     │   │   ├── UI/                         # Button.tsx, SectionHeading.tsx, Reveal.tsx
-    │   │   ├── home/                       # Hero, PayCard(+Section), DispatchBoard(+Section), LaneRow, EquipmentCard(+Section), RequirementItem, RequirementsSection, ContactCard(+Section), CtaBand
+    │   │   ├── home/                       # Hero, PayCard(+Section), DispatchBoard(+Section), LaneMap, LaneRow, EquipmentCard(+Section), RequirementItem, RequirementsSection, ContactCard(+Section), CtaBand
     │   │   └── apply/ApplicationForm.tsx     # includes the co-driver block, see above
     │   ├── hooks/useScrollReveal.ts
     │   ├── api/apply.ts                 # submitApplication() — POSTs to the relay Worker, contract with worker/worker.js

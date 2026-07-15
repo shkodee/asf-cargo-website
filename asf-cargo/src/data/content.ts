@@ -31,6 +31,17 @@ export const lanes: Lane[] = [
   { idx: '08', origin: 'Maryland', dest: 'Tennessee', status: 'Daily' },
 ];
 
+/** Approximate geographic-center coordinates [lng, lat] for each state referenced in `lanes`. */
+export const stateCoordinates: Record<string, [number, number]> = {
+  Tennessee: [-86.35, 35.86],
+  'New Jersey': [-74.4057, 40.0583],
+  Pennsylvania: [-77.1945, 41.2033],
+  Georgia: [-83.6431, 32.1656],
+  'New York': [-75.4652, 42.9538],
+  Illinois: [-89.3985, 40.6331],
+  Maryland: [-76.6413, 39.0458],
+};
+
 export const payTiers: PayTier[] = [
   {
     role: 'Solo Driver',

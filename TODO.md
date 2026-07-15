@@ -59,6 +59,32 @@
       header/footer match. `wrangler.jsonc`'s existing `not_found_handling: "404-page"` now has
       an actual page to serve. Verified live at `https://asfcargollc.com/<bad-url>`.
 
+## ✅ Infrastructure / features (shipped 2026-07-15, later in session)
+- [x] **Equipment photos.** `truck.png`, `van.png`, `flatbed.png` added to `public/`, wired into
+      `equipment` in `content.ts` and rendered by `EquipmentCard.tsx`. Hit and fixed a
+      case-sensitivity bug (`flatbed.PNG` in code vs `flatbed.png` on disk — Windows' filesystem
+      is case-insensitive so this only breaks on a case-sensitive host, i.e. exactly where this
+      site is deployed) — see PROJECT_BRIEF's "Design system" section.
+- [x] **`robots.txt` + `sitemap.xml`.** Added to `public/`, lists `/` and `/apply.html`. Helps
+      crawlers discover pages faster on this brand-new domain; does not by itself get the site
+      indexed — that still needs Search Console verification + "Request Indexing" (client/owner
+      action, needs the Google account login).
+- [x] **Lane route map.** Added `LaneMap.tsx` (MapLibre GL JS) to the Lanes section, above the
+      existing dispatch-board table. Dark basemap, red dots per state, red arcs per lane. See
+      PROJECT_BRIEF's "Lane map" section for the data-maintenance gotcha (new lane → new state
+      needs coordinates added to `stateCoordinates` in `content.ts`) and the headless-Chrome
+      screenshot false-negative encountered while testing this (not a real bug, see that section).
+
+## 🎬 In progress / blocked
+- [ ] **Equipment section scroll animation.** Concept: truck rolls in from the right and settles
+      center; van and flatbed take turns growing from small top-right thumbnails to couple onto
+      the truck as the user scrolls, each swap syncing the card copy (Dry Van → Flatbed →
+      Power-Only, ending on truck-alone = Power-Only). Full phase-by-phase spec was written and
+      also reworded into a video-generation prompt, which the user is running through another AI
+      to get a reference clip. **Blocked on that video** — don't start the GSAP ScrollTrigger
+      implementation until it's back (the exact timing/positions are meant to come from what the
+      video actually shows), unless explicitly told to proceed without it.
+
 ## 🆕 Features to build (no client input needed)
 - [ ] **Cloudflare Web Analytics.** Needs a beacon token that only exists after enabling it in
       the dashboard (Analytics & Logs → Web Analytics → Add Site) — there's no CLI/API path to
