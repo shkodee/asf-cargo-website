@@ -415,6 +415,25 @@ async function finalizeLane(env, chatId, fromId, draft) {
     `✅ Added lane #${idx}: ${lane.origin} → ${lane.dest} (${lane.status})\n\n${text}`,
     keyboard
   );
+
+  await notifyTeamOfLaneChange(env, "added", lane, fromId);
+}
+
+// Tells everyone else with panel access who added/removed a lane and what it
+// was — username/name only, never the raw numeric ID (same "don't casually
+// expose IDs" rule as the Team view). The actor themselves is excluded since
+// they already got their own confirmation message above/in the caller.
+async function notifyTeamOfLaneChange(env, action, lane, actorId) {
+  const actorProfile = await getUserProfile(env, actorId);
+  const actorLabel = formatAdminLabel(actorId, actorProfile, false);
+  const text = `🛣 Lane ${action} by ${actorLabel}\n${lane.origin} → ${lane.dest} (${lane.status})`;
+
+  const admins = await getAdmins(env);
+  const recipients = admins.filter((a) => hasPanelAccess(a) && String(a.id) !== String(actorId));
+  const results = await Promise.allSettled(recipients.map((a) => tgSend(env, a.id, text)));
+  results.forEach((r) => {
+    if (r.status === "rejected") console.error("Lane-change notify failed:", r.reason?.message || r.reason);
+  });
 }
 
 // Cache each Telegram user's username/name whenever they interact with the
@@ -824,11 +843,13 @@ async function handleCallbackQuery(env, cq) {
   if (data.startsWith("lane:doremove:")) {
     const idx = data.slice("lane:doremove:".length);
     let lanes = await getLanes(env);
+    const removedLane = lanes.find((l) => l.idx === idx);
     lanes = lanes.filter((l) => l.idx !== idx);
     await saveLanes(env, lanes);
     const { text, keyboard } = await buildLanesView(env);
     await tgEditMessage(env, chatId, messageId, text, keyboard);
     await tgAnswerCallback(env, cq.id, `Removed lane #${idx}`);
+    if (removedLane) await notifyTeamOfLaneChange(env, "removed", removedLane, fromId);
     return;
   }
 

@@ -1,8 +1,13 @@
+import { useState } from 'react';
 import { equipment } from '../../data/content';
 import SectionHeading from '../UI/SectionHeading';
 import EquipmentCard from './EquipmentCard';
+import EquipmentLightbox from './EquipmentLightbox';
+import type { EquipmentItem } from '../../types';
 
 export default function EquipmentSection() {
+  const [lightboxItem, setLightboxItem] = useState<EquipmentItem | null>(null);
+
   return (
     <section className="section" id="equipment">
       <div className="wrap">
@@ -11,10 +16,11 @@ export default function EquipmentSection() {
         </SectionHeading>
         <div className="equip-grid">
           {equipment.map((item) => (
-            <EquipmentCard key={item.title} item={item} />
+            <EquipmentCard key={item.title} item={item} onExpand={() => setLightboxItem(item)} />
           ))}
         </div>
       </div>
+      <EquipmentLightbox item={lightboxItem} onClose={() => setLightboxItem(null)} />
     </section>
   );
 }
