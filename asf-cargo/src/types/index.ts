@@ -43,6 +43,7 @@ export interface EquipmentItem {
   soon?: boolean;
   title: string;
   description: string;
+  image?: string;
 }
 
 export interface RequirementItemData {

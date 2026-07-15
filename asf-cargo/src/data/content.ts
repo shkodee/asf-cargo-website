@@ -60,17 +60,20 @@ export const equipment: EquipmentItem[] = [
     tag: 'Active',
     title: 'Power-Only',
     description: 'Hook, haul, and drop. Power-only freight keeps you moving without waiting on trailer turnaround.',
+    image: '/truck.png',
   },
   {
     tag: 'Active',
     title: 'Dry Van',
     description: 'Standard dry van freight across our East-to-Midwest lane network — steady and predictable.',
+    image: '/van.png',
   },
   {
     tag: 'Coming Soon',
     soon: true,
     title: 'Flatbed',
     description: "Flatbed capacity is being added to the fleet soon — reach out if you're a flatbed driver and want to be first in line.",
+    image: '/flatbed.PNG',
   },
 ];
 
