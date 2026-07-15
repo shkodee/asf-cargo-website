@@ -6,6 +6,7 @@ export default function Hero() {
 
   return (
     <section className="hero">
+      <div className="aurora-bg" aria-hidden="true" />
       <div className="wrap hero-grid">
         <div className="hero-anim">
           <div className="eyebrow" style={{ color: '#ff6b7a' }}>Now hiring · Solo & Team</div>

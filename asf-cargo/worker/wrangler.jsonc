@@ -9,5 +9,11 @@
     "logs": {
       "enabled": true
     }
-  }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "ASF_BOT_KV",
+      "id": "66e0674ed6484e47b719ffb950959c29"
+    }
+  ]
 }

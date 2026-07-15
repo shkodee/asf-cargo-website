@@ -1,24 +1,42 @@
 # Connecting the application form to Telegram + Email
 
 Your website is static HTML — it can't securely hold secret API keys by itself.
-So `worker.js` runs as a small, free relay: your form sends the application to it,
-and it forwards the details to Telegram and email. This takes about 10–15 minutes,
-one time.
+So `worker.js` runs as a small, free relay + bot:
+1. It receives the driver application form POST and DMs a summary to every
+   admin/owner/member on the team (via the bot), plus emails it via Resend.
+2. It's also the Telegram bot itself — `/start`, `/whoami`, `/addadmin`, and an
+   inline admin panel (manage the team, pause/resume notifications, view stats)
+   all run through this same Worker.
 
 ## 1. Create your Telegram bot (2 min)
 1. In Telegram, message **@BotFather**.
 2. Send `/newbot`, give it a name (e.g. "ASF Cargo Applications").
 3. BotFather gives you a **token** like `123456789:AAExampleTokenHere`. Save it.
-4. Add the bot to the Telegram group/channel where you want applications to land.
-5. To find your **chat ID**: send any message in that group, then visit
-   `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` in a browser — look for `"chat":{"id": ...}`.
+4. Applications go straight to each team member's DMs, not a group — **everyone
+   must open a chat with the bot and send it any message (e.g. `/start`) at least
+   once** before the bot is allowed to message them (a Telegram platform rule, not
+   something this code can work around).
 
 ## 2. Create a Resend account for email (3 min) — optional, skip if Telegram-only is fine
 1. Sign up free at https://resend.com
 2. Verify a sending domain (or use their test domain to start).
 3. Grab your **API key**.
 
-## 3. Deploy the Worker (5–8 min)
+## 3. Create the KV namespace (1 min)
+The bot's team list, pause state, and stats live in a Cloudflare KV namespace
+(not a static secret — this lets the bot manage its own team live, via `/addadmin`
+and the panel, with no redeploy needed):
+```
+npx wrangler kv namespace create ASF_BOT_KV
+```
+This prints a binding block — add it to `wrangler.jsonc` in this folder:
+```jsonc
+"kv_namespaces": [
+  { "binding": "ASF_BOT_KV", "id": "<the id it printed>" }
+]
+```
+
+## 4. Deploy the Worker (5–8 min)
 
 **Preferred: via CLI, from this folder** (`asf-cargo/worker/` — it has its own
 `wrangler.jsonc`, deliberately separate from the site's config one level up so a deploy
@@ -32,51 +50,74 @@ npx wrangler deploy     # ships worker.js as-is
 **deleted** on deploy if it's not listed here. Always add new secrets with
 `wrangler secret put NAME`, never as a plain var, so this can't happen again.
 
-**Alternative: dashboard paste** (no CLI needed, but you must redo this by hand every time
-`worker.js` changes):
-1. Sign up free at https://dash.cloudflare.com (Workers is free).
-2. Click **Workers & Pages → Create → Create Worker**.
-3. Name it, e.g. `asf-cargo-relay`, then click **Deploy** (deploys a blank starter).
-4. Click **Edit code**, delete the sample code, and paste in the contents of `worker.js` from this folder.
-5. Click **Save and Deploy**.
-
-Either way, go to **Settings → Variables and Secrets** on the Worker, and add these
-(mark as "Secret", not plain variable):
+Add these secrets (`wrangler secret put NAME`, paste the value when prompted):
 - `TELEGRAM_BOT_TOKEN` — from step 1
-- `TELEGRAM_CHAT_ID` — from step 1
+- `TELEGRAM_WEBHOOK_SECRET` — any random string you generate yourself (e.g.
+  `node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"`) —
+  verifies incoming webhook calls are really from Telegram
+- `SETUP_SECRET` — another random string, protects the one-time webhook-registration
+  endpoint below from anyone else triggering it
 - `RESEND_API_KEY` — from step 2 (skip if not using email)
 - `EMAIL_FROM` — e.g. `applications@yourdomain.com` (skip if not using email)
 - `EMAIL_TO` — the inbox you want applications sent to (skip if not using email)
 
 Note the Worker's URL — it looks like `https://asf-cargo-relay.yourname.workers.dev`.
 
-   > If you're skipping email, delete the `sendEmail(...)` line from the
-   > `Promise.allSettled([...])` call in `worker.js` before deploying, so it doesn't
-   > error out trying to use empty variables.
+## 5. Register the webhook + bot commands (1 min, one-time)
+Visit this URL once in a browser (with your real Worker URL and `SETUP_SECRET`):
+```
+https://asf-cargo-relay.yourname.workers.dev/setup-webhook?secret=YOUR_SETUP_SECRET
+```
+This tells Telegram to start sending bot updates to `/telegram-webhook`, and
+registers the `/` command list in Telegram's UI. You'll see a small JSON success
+response. Re-visit this URL any time after redeploying if the webhook ever needs
+re-registering (it doesn't, normally — this is truly one-time).
 
-## 4. Connect it to your website (1 min)
-Open `assets/script.js` in your site files and replace:
-```js
-const APPLICATION_ENDPOINT = "PASTE_YOUR_WORKER_URL_HERE";
+## 6. Bootstrap the first owner (1 min)
+KV starts empty, so nobody can use `/addadmin` yet. Seed the first person by hand:
 ```
-with your real Worker URL, e.g.:
-```js
-const APPLICATION_ENDPOINT = "https://asf-cargo-relay.yourname.workers.dev";
+npx wrangler kv key put --remote --namespace-id <your KV id> "admins" \
+  '[{"id":"<your numeric telegram id>","role":"owner","addedBy":"system","addedAt":"2026-01-01T00:00:00.000Z"}]'
 ```
+(Get your numeric ID by messaging the bot — it'll reply with it if you're not
+registered yet.) After that, everyone else can be added straight from the bot
+itself with `/addadmin <id>` — no more manual KV edits needed.
 
-## 5. Test it
-Open `apply.html`, submit a test application, and check your Telegram group (and email inbox).
+## 7. Connect it to your website
+This is already wired up in `src/api/apply.ts` via `APPLICATION_ENDPOINT` — update
+that constant if the Worker's URL ever changes.
 
-## 6. Lock it down (recommended, 1 min)
-In `worker.js`, change:
-```js
-"Access-Control-Allow-Origin": "*",
-```
-to your real live domain once the site is deployed, e.g.:
-```js
-"Access-Control-Allow-Origin": "https://asfcargo.com",
-```
-This stops other websites from using your relay to spam your Telegram/email.
+## 8. Test it
+Open `apply.html`, submit a test application, and check the team's Telegram DMs
+(and email inbox, if configured).
+
+## 9. Lock it down (already done, documented here for reference)
+`worker.js`'s `ALLOWED_ORIGINS` list restricts which sites can call the relay via
+CORS — update it if the site's domain ever changes.
+
+---
+
+## Bot commands & roles
+
+| Role | Panel access | Gets notifications |
+|---|---|---|
+| 👑 Owner | Full | Yes |
+| 🛠 Admin | Full (identical to Owner) | Yes |
+| 👤 Member | None | Yes |
+
+- `/start` or `/menu` — open the admin panel (Owner/Admin) or see your registration
+  status (Member / unregistered)
+- `/whoami` — show your Telegram ID and current role
+- `/addadmin <id>` — (Owner/Admin only) add someone by numeric ID, then pick their
+  role (Owner/Admin/Member) via buttons. They must have messaged the bot at least
+  once already, or they won't receive the notification (though they'll still be
+  added — it'll just silently fail to greet them until they do message it).
+- **👥 Team** button — view everyone on the team with their role, remove anyone
+  with one tap
+- **📊 Stats** button — applications received today / this week / all-time
+- **⏸ Pause / ▶️ Resume** button — temporarily stop Telegram notifications
+  (the form still works and still emails, if configured — this only affects
+  the Telegram DM step)
 
 ---
 

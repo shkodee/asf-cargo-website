@@ -33,6 +33,17 @@
 - ✅ **Lane route map** added to the Lanes section (`src/components/home/LaneMap.tsx`), sitting
   above the existing dispatch-board table, not replacing it — see "Lane map" section below for
   how it's built and what to know before touching it again.
+- ✅ **Telegram relay rebuilt as a full admin bot** (2026-07-15) — no longer a one-way post to a
+  group; now DMs a managed team (Owner/Admin/Member roles) individually, and the bot itself
+  supports `/start`, `/whoami`, `/addadmin`, and an inline panel (manage team, pause/resume,
+  stats). See "Telegram admin bot" section below — this is a meaningfully different architecture
+  from the original relay, worth reading before touching `worker/worker.js` again.
+- ✅ **Aurora background added to the hero** (2026-07-15) — a slow-drifting animated red/navy
+  gradient effect (`.aurora-bg` in `components.css`, rendered as a child div in `Hero.tsx`), sits
+  behind the existing content and grid-line texture, masked to fade from the top-right. Pure CSS,
+  no new dependency. Previewed live first via an Artifact (with an intensity toggle) before
+  building — client picked "Medium" intensity; the CSS's `opacity: 0.55` on `.aurora-bg::before`/
+  `::after` is that value if it ever needs adjusting.
 - 🎬 **Equipment scroll animation — in progress, blocked on an external video.** User is having
   another AI generate a reference video (truck rolls in, van/flatbed take turns attaching to it
   as you scroll) from a prompt we wrote together; once that video comes back, the next step is
@@ -83,7 +94,7 @@ This project spans two separate Cloudflare Workers under one Cloudflare account
 | Cloudflare Worker name | `asf-cargo-website` | `asf-cargo-relay` |
 | URL | https://asf-cargo-website.afzaljon0411.workers.dev | https://asf-cargo-relay.afzaljon0411.workers.dev |
 | Deploy method | Auto, via GitHub integration (push to `main`) | **Via `wrangler deploy`** from `asf-cargo/worker/` (as of 2026-07-15 — dashboard paste still works as a fallback, see `worker/README.md`) |
-| Config | `asf-cargo/wrangler.jsonc` (static assets from `./dist`, root dir `asf-cargo`, deploy command `npx wrangler deploy`, build command `npm run build`, `workers_dev: true`, `routes` with `custom_domain: true` for the apex + `www`) | `asf-cargo/worker/wrangler.jsonc` (added 2026-07-15 — deliberately separate from the site's config one directory up, so a deploy from `worker/` never picks up the site's `dist/` assets by accident) |
+| Config | `asf-cargo/wrangler.jsonc` (static assets from `./dist`, root dir `asf-cargo`, deploy command `npx wrangler deploy`, build command `npm run build`, `workers_dev: true`, `routes` with `custom_domain: true` for the apex + `www`) | `asf-cargo/worker/wrangler.jsonc` (added 2026-07-15 — deliberately separate from the site's config one directory up, so a deploy from `worker/` never picks up the site's `dist/` assets by accident; also binds the `ASF_BOT_KV` KV namespace the Telegram bot's team/state live in, see "Telegram admin bot") |
 
 **Wrangler CLI is authenticated on this machine** (ran `wrangler login` 2026-07-15, browser OAuth
 flow). To redeploy either Worker from a fresh session: `cd` into `asf-cargo/` (site) or
@@ -204,6 +215,73 @@ companion, not a substitute).
   reach for Playwright to verify before assuming it's broken — that CLI flag has a known
   compositing/readback limitation with canvas content that doesn't reflect real browser behavior.
 
+## Telegram admin bot (`worker/worker.js`)
+Rebuilt 2026-07-15 from a one-way group-post relay into a real Telegram bot with a
+managed team and an inline admin panel. **This repo's public on GitHub — don't ever
+commit real people's numeric Telegram chat IDs into this file or any tracked file;**
+they live only in Cloudflare KV, never in git.
+
+**Three routes in one Worker** (`worker/worker.js`'s top-level `fetch` dispatches by
+`pathname`):
+- `POST /` — the application form's relay endpoint (unchanged contract, CORS-protected)
+- `POST /telegram-webhook` — Telegram delivers bot updates (messages, button taps)
+  here; verified via the `X-Telegram-Bot-Api-Secret-Token` header matching
+  `TELEGRAM_WEBHOOK_SECRET`, so nobody else can inject fake bot commands
+- `GET /setup-webhook?secret=...` — one-time endpoint (protected by `SETUP_SECRET`)
+  that tells Telegram where to send updates and registers the `/` command list.
+  Normally never needs re-running after initial setup.
+
+**State lives in a Cloudflare KV namespace** (`ASF_BOT_KV`, bound in
+`worker/wrangler.jsonc`), not a static secret — this is what lets the bot manage its
+own team live, no redeploy required:
+- `admins` — JSON array of `{ id, role, addedBy, addedAt }`. This is the actual
+  source of truth for who gets DMed on a new application (`sendTelegram()` in
+  `worker.js` reads this, not any env var).
+- `paused` — `"1"`/`"0"`, toggled by the Pause/Resume button; only affects the
+  Telegram DM step, the form and email still work while paused.
+- `applications` — capped array (last 1000) of ISO timestamps, one per legitimate
+  (non-honeypot) form submission, powers the Stats view.
+- `profile:<id>` — cached `{ username, firstName }` per Telegram user, captured
+  opportunistically on every message/button tap. This is the *only* way the bot
+  ever learns someone's username — `/addadmin` only ever gets a numeric ID, and
+  Telegram has no general "look up a stranger's username" API — so a brand-new
+  person's name won't show in the team list until they've messaged the bot at
+  least once.
+
+**Role model** — three tiers, stored per-person in the `admins` KV array:
+| Role | Panel access | Gets notifications |
+|---|---|---|
+| Owner | Full | Yes |
+| Admin | Full (**identical** to Owner — deliberate, client's explicit call) | Yes |
+| Member | None | Yes |
+
+`/addadmin <id>` (Owner/Admin only) walks through an inline-button role picker
+(Owner / Admin / Member) rather than taking the role as a command argument — chosen
+for a smoother UX per the client's preference for buttons over typed args where
+the option set is small and fixed.
+
+**Two real bugs hit and fixed this session, worth knowing about if this file gets
+touched again:**
+1. **Telegram won't let a bot DM someone who hasn't messaged it first** — not a bug
+   in this code, a platform rule. Fails with `403: Forbidden: bot can't initiate
+   conversation with a user`. There is no workaround; the person has to send the
+   bot literally anything (e.g. `/start`) once. `sendTelegram()`'s fan-out treats
+   this as a per-recipient failure (logged, not fatal) as long as at least one
+   admin/owner/member successfully receives the DM.
+2. **Literal `<...>` in any Telegram message text breaks `parse_mode: "HTML"`** —
+   Telegram's HTML parser treats it as an attempted (invalid) tag and rejects the
+   *entire* message with `400: can't parse entities`, which silently no-ops
+   whatever button/action triggered it (looks exactly like "the button doesn't
+   work"). Use square brackets for placeholder text instead (e.g. `/addadmin [id]`,
+   never `/addadmin <id>`) — this file has already been audited and fixed once, but
+   double-check any new message text added later.
+
+**Legacy secrets no longer used, safe to eventually delete from the Worker's
+dashboard:** `TELEGRAM_CHAT_ID` (original single-group-chat version) and
+`TELEGRAM_ADMIN_CHAT_IDS` (intermediate static-list version, superseded by the KV
+`admins` array). Neither is read by the current code; both were left in place
+rather than deleted mid-session to avoid any risk to the working bot.
+
 ## Co-driver feature (application form)
 When **Team Driver** is selected as Position, a consolidated block appears (Position, "Do you
 have a co-driver?", and — if "I already have one" — co-driver info fields) positioned right
@@ -274,7 +352,8 @@ which POSTs JSON to a hardcoded `APPLICATION_ENDPOINT` constant
 (`https://asf-cargo-relay.afzaljon0411.workers.dev`). Field names in `ApplicationPayload`
 (`src/types/index.ts`, including the co-driver fields) are a **contract with `worker/worker.js`**
 — don't rename them without updating that file too. That Worker fans the submission out to:
-1. A Telegram chat via Bot API (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) — **working**
+1. Telegram DMs to the whole team via the bot (`TELEGRAM_BOT_TOKEN` + the `admins` list in KV —
+   see "Telegram admin bot" below) — **working**
 2. Email via Resend (`RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_TO`) — **not set up**; `worker.js`
    already calls `sendEmail()` unconditionally, so it just fails silently via
    `Promise.allSettled` until those three secrets are added in the Cloudflare dashboard. No code

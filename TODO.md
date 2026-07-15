@@ -74,6 +74,23 @@
       PROJECT_BRIEF's "Lane map" section for the data-maintenance gotcha (new lane → new state
       needs coordinates added to `stateCoordinates` in `content.ts`) and the headless-Chrome
       screenshot false-negative encountered while testing this (not a real bug, see that section).
+      Later refined: switched from state-centroid to real city-level coordinates for dot placement
+      (state-level text labels only, per the client's public-page privacy rule), made the map
+      interactive (drag pan, Ctrl/Cmd+scroll to zoom — plain scroll never traps page scroll),
+      click-to-focus a lane (bold arc + zoom + PU/DEL color-coded dots + direction arrow), and a
+      reset button. Tried a 3D globe projection at one point — reverted back to flat 2D per
+      feedback, see git history if that's ever wanted again.
+- [x] **Header nav restyled as a scroll-tracking pill (tried, then reverted).** Built a
+      Framer-Motion "tubelight" style pill nav with an animated glow tracking the active section
+      on scroll. Shipped, then the client asked to revert it — done via `git revert`, header is
+      back to the original plain nav-links. Don't rebuild this without being asked again.
+- [x] **Telegram relay rebuilt as a full admin bot.** Was a one-way post to a Telegram group;
+      now DMs a managed team individually with Owner/Admin/Member roles, plus `/start`, `/whoami`,
+      `/addadmin`, and an inline panel (team management, pause/resume, stats). New infra: a
+      Cloudflare KV namespace (`ASF_BOT_KV`) holds the team list/state instead of a static secret.
+      See PROJECT_BRIEF's "Telegram admin bot" section for the architecture, the two real bugs hit
+      and fixed along the way (Telegram's "must message the bot first" rule, and a `<...>`
+      HTML-parse-mode crash), and which secrets are now orphaned/unused.
 
 ## 🎬 In progress / blocked
 - [ ] **Equipment section scroll animation.** Concept: truck rolls in from the right and settles
@@ -106,18 +123,18 @@ rest**, not access control. Current state:
 - **At rest:** nothing is stored anywhere in this codebase's infrastructure. Application
   submissions flow straight through the relay Worker to Telegram (and email, once Resend is set
   up) and are never written to a database, file, or log that this project controls. Cloudflare
-  Worker secrets (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) are encrypted at rest by Cloudflare
-  and never appear in the git repo.
-- **Out of scope for this codebase:** who has access to the Telegram group or the eventual email
-  inbox — that's account/membership management on Telegram's and the email provider's side, not
-  something the website code controls.
+  Worker secrets/KV (`TELEGRAM_BOT_TOKEN`, the team list in `ASF_BOT_KV`) are encrypted at rest by
+  Cloudflare and never appear in the git repo.
+- **Out of scope for this codebase:** who's on the Telegram team or has access to the eventual
+  email inbox — that's membership management via the bot's own `/addadmin`/remove flow and the
+  email provider's side, not something the website code controls beyond the bot commands.
 - This session also reduced attack surface directly: CORS lock-down (arbitrary sites can no
   longer call the relay) and the honeypot (cuts down automated junk submissions reaching Telegram
   at all).
 
 ## 📋 Needs content/decisions from the client (tracked here + in PROJECT_BRIEF.md)
 - [ ] Driver testimonials — none provided, don't fabricate
-- [ ] Equipment photos — real truck photos to replace text-only cards
+- [x] Equipment photos — done 2026-07-15, see the "Infrastructure / features" section above
 - [ ] Benefits detail (health insurance, home time, bonuses) — not specified yet
 - [ ] Flatbed section — flip from "Coming Soon" to active once confirmed
 - [x] Custom domain purchase (`asfcargollc.com`) — bought via Cloudflare Registrar 2026-07-14
