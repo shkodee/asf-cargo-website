@@ -81,25 +81,31 @@
   activation, Resend email, proper OG image, equipment scroll animation.
 - ✅ **Owner account (`880712904`) has now messaged the bot** — can receive DMs, no longer blocked.
 - ✅ **Stray `photo_2026-07-15_05-05-11.jpg` deleted** from `public/`.
-- 🧪 **CDL photo/document upload — built, not yet deployed.** See its own section below
-  ("CDL document upload") for the full architecture. Blocked on enabling R2 on the Cloudflare
-  account (dashboard-only, one-time) before `wrangler deploy` can actually ship it.
-- 🧪 **Form validation tightened — built, not yet deployed.** Phone now auto-formats and enforces
-  10 digits; email format validated when filled in; city fields (primary + co-driver) must match
-  the existing autocomplete list instead of accepting free text. `ApplicationForm.tsx`.
-- 🧪 **HTTP→HTTPS redirect + HSTS — built, not yet deployed.** Root-caused the browser "not
-  secure" warning on `asfcargollc.com`: both custom domains served real content over plain HTTP
-  with a `200` (no redirect) — confirmed via `curl http://asfcargollc.com/`, and confirmed the
-  HTTPS side's certificate itself was fine. Cloudflare's zone-level "Always Use HTTPS" wasn't
-  covering this Worker route, so the fix is in code, not a dashboard toggle: `asf-cargo/wrangler.jsonc`
-  now has a `main: "site-worker.js"` in front of the `ASSETS` binding, which redirects any
-  `http:` request to `https:` (301) and adds `Strict-Transport-Security` to every response. This
-  Worker auto-deploys on `git push`, so it ships the next time `main` is pushed.
-- ✅ **`GET /lanes` now sends `Cache-Control: no-store`** (deployed with the rest of `worker.js`
-  once R2 is enabled — see above) — defensive fix investigated after a "lane update doesn't
-  work" report. The underlying live-data mechanism itself is confirmed working (a lane added
-  via the bot mid-session showed up correctly through the API), so this addresses staleness/
-  caching as the most likely remaining explanation, not a mechanism rewrite.
+- ✅ **CDL photo/document upload — live** (R2 enabled on the account 2026-07-15, bucket
+  `asf-cargo-cdl-docs` created, relay Worker redeployed with the binding). See its own section
+  below ("CDL document upload") for the full architecture. Awaiting the client's own real-world
+  test submission to confirm the Telegram "View CDL Document" flow end-to-end.
+- ✅ **Form validation tightened — live.** Phone now auto-formats and enforces 10 digits; email
+  format validated when filled in; city fields (primary + co-driver) must match the existing
+  autocomplete list instead of accepting free text. `ApplicationForm.tsx`.
+- ✅ **HTTP→HTTPS redirect + HSTS — live, verified.** Root-caused the browser "not secure"
+  warning on `asfcargollc.com`: both custom domains served real content over plain HTTP with a
+  `200` (no redirect) — confirmed via `curl http://asfcargollc.com/`; the HTTPS side's
+  certificate itself was fine. Cloudflare's zone-level "Always Use HTTPS" wasn't covering this
+  Worker route, so the fix is in code: `asf-cargo/site-worker.js` wraps the `ASSETS` binding and
+  redirects any `http:` request to `https:` (301) plus adds `Strict-Transport-Security`.
+  **Gotcha that cost a redeploy cycle:** the first version of this fix didn't actually take
+  effect — Cloudflare's Workers Assets feature serves asset-matching requests (like `/`) directly
+  from its own layer, bypassing the custom `main` script entirely, by default. Fixed by adding
+  `"run_worker_first": true` under `assets` in `wrangler.jsonc` — without that flag, any
+  Worker-level logic that needs to run on every request (redirects, headers, auth) silently
+  never executes for static-asset routes. Confirmed live via `curl -I http://asfcargollc.com/` →
+  `301`, and `Strict-Transport-Security` present on the HTTPS response.
+- ✅ **`GET /lanes` now sends `Cache-Control: no-store`** — live, defensive fix investigated
+  after a "lane update doesn't work" report. The underlying live-data mechanism itself is
+  confirmed working (a lane added via the bot mid-session showed up correctly through the API),
+  so this addresses staleness/caching as the most likely remaining explanation, not a mechanism
+  rewrite.
 
 ## What this is
 A recruiting/informational website for a trucking company, built to attract CDL-A drivers
@@ -437,7 +443,7 @@ three issues, all deployed and verified live the same day:
 outbound API calls, never logged/echoed, `npm audit` reports 0 vulnerabilities, and there's no
 SQL/NoSQL injection surface (everything is KV key/value, no query language).
 
-## CDL document upload (application form) — built 2026-07-15, not yet deployed
+## CDL document upload (application form) — live 2026-07-15
 Optional file field on the apply form (`ApplicationForm.tsx`) for a CDL photo or scanned
 document — JPEG/PNG/WEBP/PDF, 8MB cap, validated both client-side (immediate feedback) and
 server-side (`worker.js`, since the client check is trivially bypassable).
@@ -464,11 +470,14 @@ keeps the bucket private with no public access at all:
   protection. See the `viewdoc:` handling at the top of `handleCallbackQuery()` — it runs before
   the general `hasPanelAccess()` gate that the rest of the panel callbacks use.
 
-**Blocked on one dashboard action:** R2 isn't enabled on this Cloudflare account yet
-(`npx wrangler r2 bucket create` fails with `[code: 10042] Please enable R2 through the
-Cloudflare Dashboard`) — first-time R2 enablement has no CLI/API path. Once enabled: create the
-bucket (`asf-cargo-cdl-docs`, already referenced in `worker/wrangler.jsonc`'s `r2_buckets`), then
-`wrangler deploy` from `asf-cargo/worker/`. See `worker/README.md` step 3b.
+**R2 enabled on the account 2026-07-15** (client action, via dashboard — first-time R2
+enablement has no CLI/API path, `npx wrangler r2 bucket create` fails with `[code: 10042]` until
+this is done). Bucket `asf-cargo-cdl-docs` created and the relay Worker redeployed with the
+`CDL_BUCKET` binding — confirmed via `wrangler r2 bucket info` (0 objects, ready) and a live
+multipart smoke test against `POST /` (using the honeypot field so it didn't trigger a real
+Telegram DM). **Not yet verified: an actual end-to-end submission with a real file**, which
+needs to go through Telegram for real — left for the client to do via the live form rather than
+triggering an unsolicited test notification to the team.
 
 ## Co-driver feature (application form)
 When **Team Driver** is selected as Position, a consolidated block appears (Position, "Do you
