@@ -31,15 +31,36 @@ export const lanes: Lane[] = [
   { idx: '08', origin: 'Maryland', dest: 'Tennessee', status: 'Daily' },
 ];
 
-/** Approximate geographic-center coordinates [lng, lat] for each state referenced in `lanes`. */
-export const stateCoordinates: Record<string, [number, number]> = {
-  Tennessee: [-86.35, 35.86],
-  'New Jersey': [-74.4057, 40.0583],
-  Pennsylvania: [-77.1945, 41.2033],
-  Georgia: [-83.6431, 32.1656],
-  'New York': [-75.4652, 42.9538],
-  Illinois: [-89.3985, 40.6331],
-  Maryland: [-76.6413, 39.0458],
+/**
+ * Real pickup/drop-off cities behind each lane, for map dot placement only —
+ * never rendered as text on public pages (see PROJECT_BRIEF.md: lane detail
+ * is state-level only on public pages, a deliberate client instruction).
+ * `lanes` above stays state-level for all displayed text (dispatch board,
+ * map labels); this is purely coordinate data for `LaneMap.tsx`.
+ */
+export const cityCoordinates: Record<string, [number, number]> = {
+  'Memphis, TN': [-90.049, 35.1495],
+  'Bayonne, NJ': [-74.1143, 40.6687],
+  'Middletown, PA': [-76.7302, 40.1998],
+  'Carlisle, PA': [-77.201, 40.201],
+  'Ellenwood, GA': [-84.2938, 33.6001],
+  'Fishkill, NY': [-73.8993, 41.5359],
+  'Hodgkins, IL': [-87.8534, 41.7581],
+  'Lancaster, PA': [-76.3055, 40.0379],
+  'Kearny, NJ': [-74.1454, 40.7684],
+  'Capitol Heights, MD': [-76.9152, 38.8898],
+};
+
+/** Maps each lane's `idx` to its city-level origin/destination keys into `cityCoordinates`. */
+export const laneCities: Record<string, { origin: string; dest: string }> = {
+  '01': { origin: 'Memphis, TN', dest: 'Bayonne, NJ' },
+  '02': { origin: 'Memphis, TN', dest: 'Middletown, PA' },
+  '03': { origin: 'Memphis, TN', dest: 'Carlisle, PA' },
+  '04': { origin: 'Ellenwood, GA', dest: 'Carlisle, PA' },
+  '05': { origin: 'Fishkill, NY', dest: 'Hodgkins, IL' },
+  '06': { origin: 'Lancaster, PA', dest: 'Memphis, TN' },
+  '07': { origin: 'Kearny, NJ', dest: 'Memphis, TN' },
+  '08': { origin: 'Capitol Heights, MD', dest: 'Memphis, TN' },
 };
 
 export const payTiers: PayTier[] = [
