@@ -229,7 +229,7 @@ function buildSummary(d, cdlDocId) {
   ];
 
   if (cdlDocId) {
-    lines.push(``, `📎 CDL photo/document attached — tap the button below to view it.`);
+    lines.push(``, `📎 CDL photo/document attached below.`);
   }
 
   if (d.hasCoDriver) {
@@ -262,12 +262,40 @@ async function sendTelegram(env, text, cdlDocId) {
 
   if (chatIds.length === 0) throw new Error("No team members configured — use /addmember in the bot");
 
+  // The CDL doc auto-sends right after the text below — this button stays as a
+  // manual resend/fallback (e.g. if the auto-send failed for one recipient),
+  // not the primary way to see it anymore.
   const keyboard = cdlDocId
-    ? { inline_keyboard: [[{ text: "📎 View CDL Document", callback_data: `viewdoc:${cdlDocId}` }]] }
+    ? { inline_keyboard: [[{ text: "📎 Resend CDL Document", callback_data: `viewdoc:${cdlDocId}` }]] }
     : undefined;
 
+  // Fetch the file once and hand the same bytes to every recipient, rather
+  // than re-reading from R2 per chat.
+  let cdlAttachment = null;
+  if (cdlDocId) {
+    const doc = await getCdlDoc(env, cdlDocId);
+    const object = doc ? await env.CDL_BUCKET.get(doc.r2Key) : null;
+    if (doc && object) {
+      cdlAttachment = { bytes: await object.arrayBuffer(), filename: doc.filename, contentType: doc.contentType };
+    } else {
+      console.error("CDL doc missing at send time:", cdlDocId);
+    }
+  }
+
   const results = await Promise.allSettled(
-    chatIds.map((chat_id) => tgSend(env, chat_id, text, keyboard))
+    chatIds.map(async (chat_id) => {
+      await tgSend(env, chat_id, text, keyboard);
+      // A failed document send shouldn't count against "was this application
+      // delivered" — the team still got the full text notification either
+      // way, and can always tap "Resend CDL Document" to retry.
+      if (cdlAttachment) {
+        try {
+          await tgSendDocument(env, chat_id, cdlAttachment.bytes, cdlAttachment.filename, cdlAttachment.contentType);
+        } catch (err) {
+          console.error(`CDL auto-send to ${chat_id} failed:`, err?.message || err);
+        }
+      }
+    })
   );
 
   const failures = results.filter((r) => r.status === "rejected");
