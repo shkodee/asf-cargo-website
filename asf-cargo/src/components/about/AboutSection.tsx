@@ -10,14 +10,15 @@ import {
 } from 'lucide-react';
 import { motion, MotionConfig, useInView, useSpring, useTransform } from 'framer-motion';
 import {
-  aboutHighlights,
-  aboutStats,
+  getAboutHighlights,
+  getAboutStats,
   aboutStory,
   aboutValues,
   type AboutHighlight,
   type AboutStat,
   type AboutValue,
 } from '../../data/content';
+import { useLanes } from '../../hooks/useLanes';
 
 const icons: Record<AboutHighlight['icon'], React.ReactNode> = {
   truck: <Truck className="w-6 h-6" />,
@@ -43,6 +44,10 @@ export default function AboutSection() {
   const statsRef = useRef<HTMLDivElement>(null);
   const isInView = useInView(sectionRef, { once: true, amount: 0.1 });
   const isStatsInView = useInView(statsRef, { once: true, amount: 0.3 });
+
+  const lanes = useLanes();
+  const aboutHighlights = getAboutHighlights(lanes.length);
+  const aboutStats = getAboutStats(lanes.length);
 
   const left = aboutHighlights.slice(0, 3);
   const right = aboutHighlights.slice(3, 6);

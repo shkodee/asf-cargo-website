@@ -147,7 +147,13 @@ export interface AboutHighlight {
   description: string;
 }
 
-export const aboutHighlights: AboutHighlight[] = [
+/**
+ * Both of these are functions of the live lane count, not a plain array —
+ * `lanes`/`lanes.length` from this file is only the static fallback (see
+ * useLanes.ts), so a value baked in at module load would go stale the moment
+ * the bot adds/removes a lane. Callers pass the count from useLanes() instead.
+ */
+export const getAboutHighlights = (laneCount: number): AboutHighlight[] => [
   {
     icon: 'truck',
     title: 'Solo & Team Driving',
@@ -161,7 +167,7 @@ export const aboutHighlights: AboutHighlight[] = [
   {
     icon: 'route',
     title: 'Nationwide Lane Network',
-    description: `${lanes.length} daily lanes running the East Coast to Midwest, with more added every few months.`,
+    description: `${laneCount} daily lanes running the East Coast to Midwest, with more added every few months.`,
   },
   {
     icon: 'graduationCap',
@@ -188,8 +194,8 @@ export interface AboutStat {
   label: string;
 }
 
-export const aboutStats: AboutStat[] = [
-  { value: lanes.length, suffix: '+', label: 'Daily Lanes' },
+export const getAboutStats = (laneCount: number): AboutStat[] => [
+  { value: laneCount, suffix: '+', label: 'Daily Lanes' },
   { value: equipment.length, label: 'Freight Types' },
   { value: 0.75, decimals: 2, prefix: '$', suffix: '/mi', label: 'Up to, Solo Pay' },
   { value: 1, decimals: 2, prefix: '$', suffix: '/mi', label: 'Up to, Team Pay' },

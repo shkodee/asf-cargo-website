@@ -30,6 +30,11 @@ any of these. The stray `photo_2026-07-15_05-05-11.jpg` file has been deleted. T
       with an "About" link. Verified via a real scripted Playwright pass at desktop and mobile
       widths, zero console errors. See `PROJECT_BRIEF.md` → "About page" for full detail. Team
       bios are draft text — see the item above.
+- [x] **About page fixes** (2026-07-16, client feedback on the shipped page) — footer nav was
+      missing the About link (desktop header/mobile menu had it, footer didn't); the "Nationwide
+      Lane Network" highlight card and the "8+ Daily Lanes" stat were reading a stale hardcoded
+      count instead of the same live lane data the homepage uses; added the homepage's aurora
+      background effect to this page's hero too. All three fixed and re-verified.
 - [x] **CDL photo/document upload on the apply form — confirmed working end-to-end** (client
       tested live, 2026-07-16). File field (JPEG/PNG/WEBP/PDF, 8MB cap, validated client + server
       side) uploads to a **private** R2 bucket (`asf-cargo-cdl-docs`, never a public URL). The

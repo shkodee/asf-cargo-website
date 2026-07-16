@@ -331,6 +331,8 @@
 
 /* Page hero (sub-pages) */
 .page-hero {
+  position: relative;
+  overflow: hidden;
   background: linear-gradient(160deg, var(--navy) 0%, var(--navy-2) 100%);
   padding: 64px 0 54px;
 }

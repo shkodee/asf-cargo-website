@@ -17,6 +17,7 @@ export default function Footer() {
           <div>
             <h4>Navigate</h4>
             <a href="/">Home</a>
+            <a href="/about.html">About</a>
             <a href="/#lanes">Lanes</a>
             <a href="/apply.html">Apply Now</a>
             <a href="/#contact">Contact</a>

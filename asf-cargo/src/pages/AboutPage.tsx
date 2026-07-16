@@ -7,6 +7,7 @@ export default function AboutPage() {
   return (
     <SiteLayout>
       <section className="page-hero">
+        <div className="aurora-bg" aria-hidden="true" />
         <div className="wrap hero-anim">
           <div className="eyebrow" style={{ color: '#ff6b7a' }}>About us</div>
           <h1>Who we are.</h1>

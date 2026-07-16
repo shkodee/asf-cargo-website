@@ -554,7 +554,20 @@ checking.
   (a first pass for the client to edit, not confirmed facts) — flag this before treating that text
   as final, same rule as `aboutStory`'s copy.
 - **Header nav** gained an "About" link (`Header.tsx`, both desktop nav and the mobile dropdown)
-  pointing at `/about.html`, positioned between Home and Lanes.
+  pointing at `/about.html`, positioned between Home and Lanes. **`Footer.tsx`'s "Navigate" list
+  got the same link** (added 2026-07-16, was missed in the initial page build).
+- **Lane counts on this page are live, not the static fallback** (fixed 2026-07-16 — the initial
+  build read `lanes.length` from `content.ts`'s static array at module-load time, same staleness
+  problem the homepage's `useLanes` hook exists to solve, just reintroduced here). `aboutHighlights`
+  and `aboutStats` in `content.ts` are now `getAboutHighlights(laneCount)` /
+  `getAboutStats(laneCount)` functions instead of plain arrays; `AboutSection.tsx` calls
+  `useLanes()` itself and passes `lanes.length` in. Affects the "Nationwide Lane Network" highlight
+  card and the "8+ Daily Lanes" stat counter — both now track whatever the bot's live lane list
+  says, same as the homepage hero/dispatch board.
+- **Aurora background effect added to this page's hero** (2026-07-16) — same `.aurora-bg` element/
+  CSS the homepage `Hero.tsx` uses, added to `page-hero` in `AboutPage.tsx`. Required adding
+  `position: relative; overflow: hidden` to `.page-hero` in `components.css` (the homepage `.hero`
+  already had both; `.page-hero` didn't, since nothing previously needed it contained).
 - **`vite.config.ts`** — `about` added as a third `rollupOptions.input` entry alongside `main`/
   `apply`/`notFound`.
 - Verified with a real scripted Playwright pass (not just a code read) at 1440×900 and 390×844,
