@@ -414,6 +414,69 @@ Steps to integrate
 
 ---
 
+## 4. Truck highlight image — drive-in + float animation (About page)
+
+**Date:** 2026-07-16
+**Outcome:** Built — but unlike every other entry here, **not ported from an external
+shadcn/Tailwind component prompt.** Designed directly: a live Float-vs-Drive-in comparison was
+built as a self-contained HTML demo and published as a Claude Artifact for the client to compare
+side-by-side against the current (boxed, 280px) treatment before anything touched the real
+codebase — client picked "Drive-in." Kept here anyway since the archive's stated purpose is reuse,
+and the CSS technique below is directly reusable anywhere else on the site a similar "arrives once,
+then idles" moment is wanted (an equipment photo, the logo, etc.).
+
+The reusable part is the chained-animation technique — a one-shot entrance folded into a
+permanent idle loop via CSS's comma-separated `animation` shorthand, gated on a React `isInView`
+boolean (from framer-motion's `useInView`) toggling a plain `.in-view` class rather than a second
+observer:
+
+```css
+.about-image {
+  filter: drop-shadow(0 26px 34px rgba(12,28,52,0.28));
+  opacity: 0;
+  transform: translateX(70px) scale(0.94);
+  transition: transform 0.4s cubic-bezier(.2,.8,.2,1), filter 0.4s ease;
+}
+.about-image.in-view {
+  animation: about-truck-in 1.1s cubic-bezier(.16,.9,.28,1) forwards,
+             about-truck-float 5.5s ease-in-out 1.1s infinite;
+}
+.about-image.in-view:hover {
+  transform: scale(1.035) translateY(-4px) !important;
+  filter: drop-shadow(0 32px 40px rgba(12,28,52,0.34));
+}
+@keyframes about-truck-in {
+  0% { opacity: 0; transform: translateX(70px) scale(0.94); }
+  60% { opacity: 1; }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes about-truck-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .about-image { animation: none !important; opacity: 1 !important; transform: none !important; }
+}
+```
+
+```tsx
+<img
+  src="/truck.png"
+  alt="ASF Cargo truck"
+  className={`about-image${isInView ? ' in-view' : ''}`}
+/>
+```
+
+**Why plain CSS instead of framer-motion**, even though the surrounding `AboutSection.tsx` uses it
+everywhere else: chaining a one-shot entrance into a permanent loop is exactly what the CSS
+`animation` shorthand's comma-separated list does natively (`forwards` animation, then a second
+`infinite` one starting where the first ends). Driving that same sequence through framer-motion's
+`animate` prop would mean either juggling `onAnimationComplete` to swap animation objects, or
+fighting the fact that framer-motion controls `transform` via inline style — which a separately
+running CSS keyframe animation on the same element can conflict with. Plain CSS avoided both.
+
+---
+
 ## Equipment scroll animation (non-component prompt)
 
 **Date:** 2026-07-15
