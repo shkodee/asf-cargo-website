@@ -64,3 +64,11 @@ export interface ContactItem {
   value: string;
   href?: string;
 }
+
+export interface TeamMember {
+  name: string;
+  role: string;
+  image: string;
+  experience?: string;
+  bio?: string;
+}

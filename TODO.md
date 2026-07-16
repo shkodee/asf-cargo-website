@@ -12,6 +12,9 @@
       it's a one-line change.
 - [ ] **Google Search Console verification + "Request Indexing"** — needs your Google login, I
       can't do this from here. `robots.txt`/`sitemap.xml` are already in place to help once you do.
+- [ ] **Team bios on the new About page are DRAFT text** — `teamMembers` in `content.ts` has a
+      first-pass `bio` line per person (Hugo, Tessa, Sam, Nate, Ben). Take a look and send edits,
+      or confirm they're fine as-is.
 
 **Dropped 2026-07-15 (not needed / resolved):** driver testimonials, benefits detail, Resend
 email, proper OG image, and the equipment scroll animation are all off the table — not pursuing
@@ -21,6 +24,12 @@ any of these. The stray `photo_2026-07-15_05-05-11.jpg` file has been deleted. T
 
 ## ✅ Shipped 2026-07-15/16, live and verified
 
+- [x] **New About page** (2026-07-16) — `about.html`, a third page with company story, animated
+      stat counters, a highlight grid, and a "Meet the Team" marquee built from a real
+      client-supplied roster (5 people, photos in `public/team/`). Nav updated (desktop + mobile)
+      with an "About" link. Verified via a real scripted Playwright pass at desktop and mobile
+      widths, zero console errors. See `PROJECT_BRIEF.md` → "About page" for full detail. Team
+      bios are draft text — see the item above.
 - [x] **CDL photo/document upload on the apply form — confirmed working end-to-end** (client
       tested live, 2026-07-16). File field (JPEG/PNG/WEBP/PDF, 8MB cap, validated client + server
       side) uploads to a **private** R2 bucket (`asf-cargo-cdl-docs`, never a public URL). The

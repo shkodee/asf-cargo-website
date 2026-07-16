@@ -18,6 +18,7 @@ export default function Header() {
     <>
       <a href="/apply.html" className="btn btn-primary nav-links-apply">Apply Now</a>
       <a href="/">Home</a>
+      <a href="/about.html">About</a>
       <a href="/#lanes">Lanes</a>
       <a href="/#equipment">Equipment</a>
       <a href="/#requirements">Requirements</a>

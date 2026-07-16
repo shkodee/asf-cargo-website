@@ -117,6 +117,13 @@
   the table stays a fixed, usable size as more lanes get added instead of growing indefinitely.
   Board header/footer stay outside the scrolling area.
 - ✅ **Logo updated** (2026-07-16, client-supplied replacement file at `public/logo.png`).
+- ✅ **New About page shipped** (2026-07-16) — `about.html` / `AboutPage.tsx`, a third page
+  alongside the homepage and apply form (see "About page" section below for full architecture:
+  company story, animated stat counters, highlight grid, and a "Meet the Team" marquee section
+  built from a real client-supplied roster). Tested via Playwright at desktop and mobile widths
+  (390–1440px) with zero console errors before committing — see that section for what to know
+  before touching it again, including one caveat on the team `bio` copy (DRAFT, not yet
+  client-confirmed).
 
 ## What this is
 A recruiting/informational website for a trucking company, built to attract CDL-A drivers
@@ -125,11 +132,12 @@ and deployed on Cloudflare Workers. Reference sites used for inspiration: summit
 and eosolutionsinc.com.
 
 ## Architecture
-React + TypeScript, built with Vite in **multi-page mode** (two HTML entry points — `index.html`
-for the homepage, `apply.html` for the application form — each mounting its own React root via
-`src/main.tsx` / `src/apply-main.tsx`). **No `react-router`** — deliberately, since there are only
-2 real pages plus in-page anchors (`#lanes`, `#equipment`, `#requirements`, `#contact`); a router
-would add a dependency for no benefit. **No Sass** — plain CSS split by concern under `src/styles/`
+React + TypeScript, built with Vite in **multi-page mode** (three HTML entry points — `index.html`
+for the homepage, `apply.html` for the application form, `about.html` for the About/Team page —
+each mounting its own React root via `src/main.tsx` / `src/apply-main.tsx` / `src/about-main.tsx`).
+**No `react-router`** — deliberately, since these are just a few real pages plus in-page anchors
+(`#lanes`, `#equipment`, `#requirements`, `#contact`); a router would add a dependency for no
+benefit. **No Sass** — plain CSS split by concern under `src/styles/`
 (`variables.css` → `base.css` → `animations.css` → `layout.css` → `components.css`, imported once
 via `src/styles/index.css`), since the design tokens were already CSS custom properties.
 
@@ -521,6 +529,43 @@ the confirmed final layout.
   HTML5 `required`. Co-driver block also gained `coDriverEmail`/`coDriverCity` fields, mirroring
   the primary applicant's `email`/`city`.
 
+## About page (`about.html` / `AboutPage.tsx`)
+Third page, shipped 2026-07-16, same `SiteLayout` (Header + ScrollProgressBar + Footer) as the
+other two pages, plus its own `page-hero` banner. Two new dependencies: `framer-motion` (scroll-
+triggered animation) and `lucide-react` (icons) — both new to this project, previously everything
+motion-related was pure CSS (`.reveal`/`useScrollReveal`); this page is the first to use JS-driven
+animation, a deliberate scope increase for a richer "about us" feel, not a silent architecture
+drift — don't assume `framer-motion` is available/idiomatic elsewhere in the codebase without
+checking.
+
+- **`AboutSection.tsx`** — company story (`aboutStory` in `content.ts`), three value cards
+  (`aboutValues`), a 6-item highlight grid (`aboutHighlights`, derived live from `payTiers`/
+  `equipment`/`lanes`/`company` rather than hardcoded numbers, so it can't drift out of sync with
+  the rest of the site), and 4 animated stat counters (`aboutStats`, spring-driven count-up via
+  `useSpring`/`useTransform`, triggered by `useInView` — **only plays once scrolled into view**,
+  confirmed correct behavior via a real scripted-scroll Playwright check, not a bug if a
+  screenshot tool that doesn't scroll shows it blank).
+- **`TeamSection.tsx`** — the "Meet the team" marquee: an infinite horizontally-scrolling row
+  (`teamMembers` list doubled and CSS-animated via `@keyframes team-marquee`, pauses on hover,
+  respects `prefers-reduced-motion`), each card grayscale-to-color on hover. Falls back to an
+  empty-state message if `teamMembers` is ever emptied out.
+- **`teamMembers` in `content.ts`** — real roster, client-supplied 2026-07-16 (Hugo, Tessa, Sam,
+  Nate, Ben), photos at `public/team/*.jpg`. **The `bio` lines are still DRAFT/placeholder copy**
+  (a first pass for the client to edit, not confirmed facts) — flag this before treating that text
+  as final, same rule as `aboutStory`'s copy.
+- **Header nav** gained an "About" link (`Header.tsx`, both desktop nav and the mobile dropdown)
+  pointing at `/about.html`, positioned between Home and Lanes.
+- **`vite.config.ts`** — `about` added as a third `rollupOptions.input` entry alongside `main`/
+  `apply`/`notFound`.
+- Verified with a real scripted Playwright pass (not just a code read) at 1440×900 and 390×844,
+  including scrolling the full page to trigger every `useInView` reveal, opening the mobile
+  hamburger menu, and checking `console --errors` — zero errors, all sections render as designed.
+  One thing that looked like a bug but wasn't: a `fullPage: true` Playwright screenshot taken
+  *without* scrolling first shows the sticky header duplicated mid-page — that's a known
+  screenshot-stitching artifact from `position: sticky` (confirmed in `layout.css`), not a real
+  rendering issue; a screenshot at an actual scroll position shows the header only at the top,
+  correctly.
+
 ## File structure
 ```
 c:\asf-cargo-website\            # git repo root
@@ -531,6 +576,7 @@ c:\asf-cargo-website\            # git repo root
 └── asf-cargo/                    # everything actually deployed as the site (Vite project root)
     ├── index.html                 # Vite entry: homepage — div#root + script src="/src/main.tsx"; also carries JobPosting JSON-LD + OG/Twitter tags
     ├── apply.html                 # Vite entry: application form — div#root + script src="/src/apply-main.tsx"; also carries OG/Twitter tags
+    ├── about.html                 # Vite entry: About/Team page — div#root + script src="/src/about-main.tsx"; also carries OG/Twitter tags
     ├── 404.html                   # Vite entry: not-found page — div#root + script src="/src/notfound-main.tsx"
     ├── package.json / vite.config.ts / tsconfig*.json
     ├── site-worker.js              # thin wrapper around the ASSETS binding — forces HTTPS + HSTS
@@ -538,17 +584,19 @@ c:\asf-cargo-website\            # git repo root
     ├── public/
     │   ├── logo.png                 # bordered/transparent badge, user-supplied, served at /logo.png
     │   ├── truck.png / van.png / flatbed.png   # equipment card photos, user-supplied
+    │   ├── team/                    # hugo.jpg, tessa.jpg, sam.jpg, nate.jpg, ben.jpg — About page team photos
     │   ├── robots.txt               # points crawlers at sitemap.xml
     │   └── sitemap.xml              # lists / and /apply.html
     ├── dist/                       # BUILD OUTPUT, gitignored — what actually gets deployed
     ├── src/
-    │   ├── main.tsx / apply-main.tsx / notfound-main.tsx   # entry points, one per HTML page
-    │   ├── pages/HomePage.tsx, ApplyPage.tsx, NotFoundPage.tsx
+    │   ├── main.tsx / apply-main.tsx / about-main.tsx / notfound-main.tsx   # entry points, one per HTML page
+    │   ├── pages/HomePage.tsx, ApplyPage.tsx, AboutPage.tsx, NotFoundPage.tsx
     │   ├── layouts/SiteLayout.tsx       # Header + ScrollProgressBar + children + Footer
     │   ├── components/
     │   │   ├── layout/                    # Header.tsx, Footer.tsx, ScrollProgressBar.tsx
     │   │   ├── UI/                         # Button.tsx, SectionHeading.tsx, Reveal.tsx
     │   │   ├── home/                       # Hero, PayCard(+Section), DispatchBoard(+Section), LaneMap, LaneRow, EquipmentCard(+Section), RequirementItem, RequirementsSection, ContactCard(+Section), CtaBand
+    │   │   ├── about/                      # AboutSection.tsx, TeamSection.tsx — see "About page" section above
     │   │   └── apply/ApplicationForm.tsx     # includes the co-driver block, see above
     │   ├── hooks/useScrollReveal.ts, useLanes.ts   # useLanes fetches live lane data from the relay Worker
     │   ├── api/apply.ts                 # submitApplication() — POSTs to the relay Worker, contract with worker/worker.js

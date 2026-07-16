@@ -4,6 +4,7 @@ import type {
   EquipmentItem,
   RequirementItemData,
   ContactItem,
+  TeamMember,
 } from '../types';
 
 export const company = {
@@ -138,6 +139,122 @@ export const contactItems: ContactItem[] = [
   { label: 'Dispatch', type: 'tel', value: company.dispatchPhone, href: company.dispatchPhoneHref },
   { label: 'Address', type: 'text', value: `${company.address1}<br>${company.address2}` },
   { label: 'Registration', type: 'text', value: `${company.mcNum}<br>${company.dotNum}` },
+];
+
+export interface AboutHighlight {
+  icon: 'truck' | 'layers' | 'route' | 'graduationCap' | 'headphones' | 'shieldCheck';
+  title: string;
+  description: string;
+}
+
+export const aboutHighlights: AboutHighlight[] = [
+  {
+    icon: 'truck',
+    title: 'Solo & Team Driving',
+    description: `Solo drivers start at ${payTiers[0].rate} ${payTiers[0].rateSuffix}; team drivers split ${payTiers[1].rate} ${payTiers[1].rateSuffix} per truck.`,
+  },
+  {
+    icon: 'layers',
+    title: 'Modern Equipment',
+    description: `${equipment.length} active freight types: ${equipment.map((e) => e.title).join(', ')}.`,
+  },
+  {
+    icon: 'route',
+    title: 'Nationwide Lane Network',
+    description: `${lanes.length} daily lanes running the East Coast to Midwest, with more added every few months.`,
+  },
+  {
+    icon: 'graduationCap',
+    title: 'No Experience Required',
+    description: 'Hold a valid CDL-A and a clean driving record — we train the rest.',
+  },
+  {
+    icon: 'headphones',
+    title: 'Dedicated Dispatch',
+    description: `A direct dispatch line, not a call center — reach dispatch at ${company.dispatchPhone}.`,
+  },
+  {
+    icon: 'shieldCheck',
+    title: 'Licensed & Insured',
+    description: `Registered and operating under ${company.mcNum} / ${company.dotNum}.`,
+  },
+];
+
+export interface AboutStat {
+  value: number;
+  decimals?: number;
+  prefix?: string;
+  suffix?: string;
+  label: string;
+}
+
+export const aboutStats: AboutStat[] = [
+  { value: lanes.length, suffix: '+', label: 'Daily Lanes' },
+  { value: equipment.length, label: 'Freight Types' },
+  { value: 0.75, decimals: 2, prefix: '$', suffix: '/mi', label: 'Up to, Solo Pay' },
+  { value: 1, decimals: 2, prefix: '$', suffix: '/mi', label: 'Up to, Team Pay' },
+];
+
+/**
+ * DRAFT company story copy — client asked for a first pass to edit, not confirmed
+ * marketing claims. Keep to voice/mission framing, not invented history, numbers,
+ * or achievements (no founding date, fleet size, awards — nothing verifiable was
+ * supplied, so nothing verifiable is asserted here).
+ */
+export const aboutStory: string[] = [
+  `ASF Cargo LLC was built around a simple idea: keep drivers loaded, keep them moving, and pay them fairly for the miles they run. We're a licensed, DOT-registered carrier (${company.mcNum} / ${company.dotNum}) running daily freight lanes across the East Coast and Midwest.`,
+  "Whether you're behind the wheel solo or running as a team, we keep the freight consistent, the equipment modern, and the dispatch line answered by a real person — not a call center.",
+];
+
+export interface AboutValue {
+  title: string;
+  description: string;
+}
+
+export const aboutValues: AboutValue[] = [
+  { title: 'Reliability', description: 'Consistent daily lanes drivers can plan their week around.' },
+  { title: 'Driver-First Dispatch', description: "A dispatch team that's reachable, not a call center." },
+  { title: 'Room to Grow', description: 'New CDL-A? We train you. Experienced? We keep you loaded.' },
+];
+
+/**
+ * Real team roster for the public About/Team page, client-supplied 2026-07-16.
+ * Photo files are in place under `public/team/`.
+ * `bio` lines are DRAFT placeholder text (client asked for a first pass to edit),
+ * not confirmed facts — don't treat as verified.
+ */
+export const teamMembers: TeamMember[] = [
+  {
+    name: 'Hugo',
+    role: 'CEO & Dispatch Manager',
+    experience: '7+ yrs experience',
+    image: '/team/hugo.jpg',
+    bio: 'Runs the dispatch team day to day and keeps ASF’s lanes moving on schedule.',
+  },
+  {
+    name: 'Tessa',
+    role: 'Main Dispatcher',
+    image: '/team/tessa.jpg',
+    bio: 'First point of contact for drivers — keeps loads matched and trucks moving.',
+  },
+  {
+    name: 'Sam',
+    role: 'Dispatcher',
+    image: '/team/sam.jpg',
+    bio: 'Works the board daily, matching drivers to loads across the lane network.',
+  },
+  {
+    name: 'Nate',
+    role: 'Dispatcher',
+    image: '/team/nate.jpg',
+    bio: 'Handles day-to-day dispatch, keeping drivers informed and on the road.',
+  },
+  {
+    name: 'Ben',
+    role: 'Dispatcher & Developer',
+    image: '/team/ben.jpg',
+    bio: 'Splits time between dispatch and building the tools ASF runs on.',
+  },
 ];
 
 export const experienceOptions = [
