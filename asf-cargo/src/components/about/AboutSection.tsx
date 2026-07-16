@@ -85,12 +85,12 @@ export default function AboutSection() {
             </div>
 
             <motion.div className="about-image-wrap" variants={itemVariants}>
-              <motion.div
-                className="about-image"
-                whileHover={{ scale: 1.02, transition: { duration: 0.3 } }}
-              >
-                <img src="/truck.png" alt="ASF Cargo truck" loading="lazy" />
-              </motion.div>
+              <img
+                src="/truck.png"
+                alt="ASF Cargo truck"
+                loading="lazy"
+                className={`about-image${isInView ? ' in-view' : ''}`}
+              />
             </motion.div>
 
             <div className="about-col">

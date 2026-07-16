@@ -568,6 +568,22 @@ checking.
   CSS the homepage `Hero.tsx` uses, added to `page-hero` in `AboutPage.tsx`. Required adding
   `position: relative; overflow: hidden` to `.page-hero` in `components.css` (the homepage `.hero`
   already had both; `.page-hero` didn't, since nothing previously needed it contained).
+- **Truck highlight image redone — bigger, unboxed, animated** (2026-07-16). Previewed live first
+  via an Artifact (same workflow as the aurora background) with a Float-vs-Drive-in toggle before
+  building — client picked **Drive-in**. Old treatment was a small (280px) boxed image: white
+  border + `box-shadow`. New: ~460px, no border/box — `filter: drop-shadow(...)` instead (same
+  shape-aware-shadow technique already used on the logo, works cleanly since `truck.png` has real
+  alpha transparency). Slides in from the right once when scrolled into view, then settles into a
+  continuous soft vertical float forever after; hover adds a small lift/scale on top of that.
+  **Deliberately implemented in plain CSS, not framer-motion**, even though the rest of
+  `AboutSection.tsx` uses framer-motion — chaining a one-shot entrance into a permanent looping
+  animation is what CSS's comma-separated `animation` shorthand (`animA forwards, animB infinite`)
+  does natively, and mixing framer-motion's inline-style `transform` control with a CSS keyframe
+  animation on the same element risks the two fighting over the same property. Entrance is gated
+  on `AboutSection`'s existing `isInView` (`useInView(sectionRef, { once: true, ... })`) via an
+  `.in-view` class — no separate observer needed. `.about-image`/`.about-image.in-view` in
+  `components.css`, `@keyframes about-truck-in` / `about-truck-float`. Respects
+  `prefers-reduced-motion` (shows static/full-opacity, no animation).
 - **`vite.config.ts`** — `about` added as a third `rollupOptions.input` entry alongside `main`/
   `apply`/`notFound`.
 - Verified with a real scripted Playwright pass (not just a code read) at 1440×900 and 390×844,
