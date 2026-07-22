@@ -12,9 +12,6 @@
 .hero-anim > *:nth-child(4) { animation-delay: .35s; }
 .hero-anim > *:nth-child(5) { animation-delay: .45s; }
 
-@keyframes fadeInImg { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: none; } }
-.hero-art { animation: fadeInImg .9s var(--ease) .3s both; }
-
 /* ===== Scroll-reveal ===== */
 .reveal { opacity: 1; transform: none; }
 .js-anim .reveal {
@@ -43,7 +40,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .hero-anim > * { animation: none; opacity: 1; transform: none; }
-  .hero-art { animation: none; }
   .js-anim .reveal { transition: none; opacity: 1; transform: none; }
   html { scroll-behavior: auto; }
 }

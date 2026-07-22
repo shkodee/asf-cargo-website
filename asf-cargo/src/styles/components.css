@@ -82,11 +82,27 @@
 .hero-badge { font-family: 'IBM Plex Mono', monospace; color: var(--chrome); font-size: 0.75rem; }
 .hero-badge b { display: block; color: var(--white); font-family: 'Bebas Neue', sans-serif; font-size: 1.7rem; letter-spacing: 0.02em; }
 .hero-art { position: relative; }
-.hero-art img { filter: drop-shadow(0 22px 34px rgba(0,0,0,0.5)); }
+.hero-truck-stack {
+  position: relative; width: 100%; aspect-ratio: 1.15;
+  filter: drop-shadow(0 22px 34px rgba(0,0,0,0.5));
+}
+.hero-truck-video {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  object-position: left center;
+  border-radius: 18px;
+  opacity: 0; transition: opacity 0.5s linear;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 10%, black 88%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, black 10%, black 88%, transparent 100%);
+}
+.hero-truck-video.is-active { opacity: 1; }
+.hero-truck-fade {
+  position: absolute; inset: 0; pointer-events: none; border-radius: 18px;
+  background: radial-gradient(120% 120% at 20% 38%, transparent 55%, rgba(10,18,32,0.35) 100%);
+}
 
 @media (max-width: 900px) {
   .hero-grid { grid-template-columns: 1fr; }
-  .hero-art { max-width: 320px; margin: 0 auto; }
+  .hero-art { width: min(360px, 100%); margin: 0 auto; }
 }
 
 /* ===== Pay cards ===== */
