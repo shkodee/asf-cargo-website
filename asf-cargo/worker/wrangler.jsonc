@@ -20,6 +20,10 @@
     {
       "binding": "CDL_BUCKET",
       "bucket_name": "asf-cargo-cdl-docs"
+    },
+    {
+      "binding": "ROSTER_BUCKET",
+      "bucket_name": "asf-cargo-roster-photos"
     }
   ]
 }

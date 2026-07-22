@@ -12,9 +12,10 @@
       it's a one-line change.
 - [ ] **Google Search Console verification + "Request Indexing"** — needs your Google login, I
       can't do this from here. `robots.txt`/`sitemap.xml` are already in place to help once you do.
-- [ ] **Team bios on the new About page are DRAFT text** — `teamMembers` in `content.ts` has a
-      first-pass `bio` line per person (Hugo, Tessa, Sam, Nate, Ben). Take a look and send edits,
-      or confirm they're fine as-is.
+**Resolved 2026-07-22:** the "team bios are DRAFT text" item above is no longer something I need
+to track — the About page roster (name/role/experience/bio/photo, all 5 people) is now editable
+by you directly from the Telegram bot's **📸 Website Roster** panel, anytime, no redeploy or my
+involvement needed. See "Shipped" below.
 
 **Dropped 2026-07-15 (not needed / resolved):** driver testimonials, benefits detail, Resend
 email, proper OG image, and the equipment scroll animation are all off the table — not pursuing
@@ -24,6 +25,14 @@ any of these. The stray `photo_2026-07-15_05-05-11.jpg` file has been deleted. T
 
 ## ✅ Shipped 2026-07-15/16, live and verified
 
+- [x] **Hero logo replaced with a looping truck video** (2026-07-22) — homepage hero now plays
+      `hero-truck.mp4` instead of the static badge; seamless crossfade loop, opening white-flash
+      trimmed, cropped to hide a known wheel-rotation defect in the generated clip. See
+      `PROJECT_BRIEF.md` → "Hero truck video".
+- [x] **About page team roster is bot-editable** (2026-07-22) — add/edit/remove team members
+      (name, role, experience, bio, photo) from Telegram's **📸 Website Roster** panel, no redeploy.
+      Seeded with the existing 5 people so nothing was lost. See `PROJECT_BRIEF.md` → "Team roster
+      via the Telegram bot".
 - [x] **New About page** (2026-07-16) — `about.html`, a third page with company story, animated
       stat counters, a highlight grid, and a "Meet the Team" marquee built from a real
       client-supplied roster (5 people, photos in `public/team/`). Nav updated (desktop + mobile)

@@ -224,10 +224,13 @@ export const aboutValues: AboutValue[] = [
 ];
 
 /**
- * Real team roster for the public About/Team page, client-supplied 2026-07-16.
- * Photo files are in place under `public/team/`.
- * `bio` lines are DRAFT placeholder text (client asked for a first pass to edit),
- * not confirmed facts — don't treat as verified.
+ * Fallback-only as of 2026-07-22: the About page's roster is now managed live
+ * from the Telegram bot (see worker/worker.js's GET /roster, and
+ * useTeamRoster.ts) — editing this array no longer changes what's live on the
+ * site once the bot's KV data loads, same relationship `lanes` below has to
+ * the live lane feed. This is shown immediately on load and kept only if that
+ * fetch ever fails, plus it's the reference data the bot's KV was originally
+ * seeded with.
  */
 export const teamMembers: TeamMember[] = [
   {

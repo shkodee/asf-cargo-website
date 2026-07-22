@@ -6,13 +6,17 @@
  *      admin's Telegram (via the bot) and emails it via Resend.
  *   2. Bot: handles the Telegram bot's commands/buttons (/start, /whoami,
  *      /addmember, and the inline admin panel — manage admins, pause/resume
- *      notifications, view stats, manage lanes). Admins and lanes are stored
- *      in KV, not static data, so they can be managed live from the bot.
+ *      notifications, view stats, manage lanes, manage the About page's team
+ *      roster). Admins, lanes, and the roster are stored in KV (roster photos
+ *      in R2), not static data, so they can be managed live from the bot.
  *
  * Routes:
  *   POST /                 — the application form's relay endpoint (CORS-protected)
  *   GET  /lanes             — public, CORS-protected: current lane list as JSON,
  *                            read by the website at runtime instead of a static import
+ *   GET  /roster            — public: About page team roster as JSON (name/role/
+ *                            experience/bio/photoUrl), same live-data pattern as /lanes
+ *   GET  /roster-photo/:id  — public: streams a roster member's photo from R2
  *   POST /telegram-webhook — Telegram sends bot updates here (verified via secret token)
  *   GET  /setup-webhook    — one-time: tells Telegram to start sending updates to
  *                            /telegram-webhook (protected by an X-Setup-Secret header)
@@ -48,6 +52,14 @@ export default {
 
     if (url.pathname === "/lanes" && request.method === "GET") {
       return handleGetLanes(request, env);
+    }
+
+    if (url.pathname === "/roster" && request.method === "GET") {
+      return handleGetRoster(request, env);
+    }
+
+    if (url.pathname.startsWith("/roster-photo/") && request.method === "GET") {
+      return handleGetRosterPhoto(request, env, url.pathname.slice("/roster-photo/".length));
     }
 
     return handleApplicationForm(request, env);
@@ -117,6 +129,62 @@ async function handleGetLanes(request, env) {
   return new Response(JSON.stringify({ lanes: publicLanes }), {
     status: 200,
     headers: { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
+}
+
+// Public roster feed for the About page's "Meet the Team" section — same
+// live-data pattern as /lanes above. Photos are genuinely public marketing
+// content (same sensitivity as the old static public/team/*.jpg files), so
+// unlike the CDL bucket there's no auth gate on the photo route, just a
+// rate-limit as an abuse brake.
+async function handleGetRoster(request, env) {
+  const headers = corsHeadersFor(request);
+
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const allowed = await checkRateLimit(env, `roster:${ip}`, 60, 60);
+  if (!allowed) {
+    return new Response(JSON.stringify({ error: "Too many requests" }), {
+      status: 429,
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+  }
+
+  const roster = await getRoster(env);
+  const origin = new URL(request.url).origin;
+  const members = roster.map((m) => ({
+    id: m.id,
+    name: m.name,
+    role: m.role,
+    experience: m.experience || undefined,
+    bio: m.bio || undefined,
+    photoUrl: m.hasPhoto ? `${origin}/roster-photo/${m.id}` : undefined,
+  }));
+  return new Response(JSON.stringify({ members }), {
+    status: 200,
+    headers: { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
+}
+
+async function handleGetRosterPhoto(request, env, id) {
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const allowed = await checkRateLimit(env, `rosterphoto:${ip}`, 120, 60);
+  if (!allowed) return new Response("Too many requests", { status: 429 });
+
+  const roster = await getRoster(env);
+  const member = roster.find((m) => m.id === id);
+  if (!member || !member.hasPhoto) return new Response("Not found", { status: 404 });
+
+  const object = await env.ROSTER_BUCKET.get(`roster/${id}`);
+  if (!object) return new Response("Not found", { status: 404 });
+
+  return new Response(object.body, {
+    status: 200,
+    headers: {
+      "Content-Type": object.httpMetadata?.contentType || "image/jpeg",
+      // Photos change rarely (only via an explicit "Replace Photo" bot action),
+      // so a long cache is safe — worth it since About page loads fetch several.
+      "Cache-Control": "public, max-age=3600",
+    },
   });
 }
 
@@ -474,6 +542,33 @@ function stateNameFromCityState(cityState) {
 }
 
 // ============================================================
+// KV-backed state + R2-backed photos: the About page's "Meet the Team"
+// roster. Same live-data relationship to the site as lanes — the About page
+// fetches GET /roster at runtime instead of importing content.ts's static
+// teamMembers array, which now exists only as a fallback (see useTeamRoster.ts).
+// Deliberately a separate R2 bucket from CDL_BUCKET: these photos are public
+// marketing content, CDL docs must stay private — keeping them in different
+// buckets makes that invariant trivial to reason about.
+// ============================================================
+
+async function getRoster(env) {
+  const raw = await env.ASF_BOT_KV.get("roster");
+  return raw ? JSON.parse(raw) : [];
+}
+
+async function saveRoster(env, roster) {
+  await env.ASF_BOT_KV.put("roster", JSON.stringify(roster));
+}
+
+async function uploadRosterPhoto(env, id, bytes, contentType) {
+  await env.ROSTER_BUCKET.put(`roster/${id}`, bytes, { httpMetadata: { contentType } });
+}
+
+async function deleteRosterPhoto(env, id) {
+  await env.ROSTER_BUCKET.delete(`roster/${id}`);
+}
+
+// ============================================================
 // KV-backed state: pending multi-step bot conversations (e.g. the
 // add-lane flow, which needs two free-text replies in a row). Telegram
 // webhook calls are stateless per-request, so "what step is this admin
@@ -592,6 +687,125 @@ async function notifyTeamOfLaneChange(env, action, lane, actorId) {
   });
 }
 
+// Walks an admin through the free-text steps of adding a new roster member
+// (name -> role -> experience -> bio, experience/bio skippable via button or
+// typing "skip"), and applies a single-field edit for an existing member.
+// The one step this can't handle is "photo" — that's routed separately in
+// handleMessage to handleRosterPhotoMessage, since it needs an actual
+// Telegram photo message, not text.
+async function handlePendingRosterInput(env, chatId, fromId, text, pending) {
+  if (pending.type === "roster_add") {
+    if (pending.step === "name") {
+      await setPending(env, fromId, { type: "roster_add", step: "role", name: text });
+      await tgSend(env, chatId, `✅ Name: ${escapeHtml(text)}\n\nWhat's their role/title? (e.g. "Driver Recruiter")`);
+      return;
+    }
+    if (pending.step === "role") {
+      await setPending(env, fromId, { ...pending, step: "experience", role: text });
+      await tgSend(env, chatId, `✅ Role: ${escapeHtml(text)}\n\nExperience line? (e.g. "5+ yrs experience")`, {
+        inline_keyboard: [[{ text: "⏭ Skip", callback_data: "rosteradd:skip:experience" }]],
+      });
+      return;
+    }
+    if (pending.step === "experience") {
+      await setPending(env, fromId, { ...pending, step: "bio", experience: text });
+      await tgSend(env, chatId, `✅ Experience: ${escapeHtml(text)}\n\nShort bio line?`, {
+        inline_keyboard: [[{ text: "⏭ Skip", callback_data: "rosteradd:skip:bio" }]],
+      });
+      return;
+    }
+    if (pending.step === "bio") {
+      await setPending(env, fromId, { ...pending, step: "photo", bio: text });
+      await tgSend(env, chatId, `✅ Bio: ${escapeHtml(text)}\n\nNow send their photo (as a Telegram photo, not a file).`);
+      return;
+    }
+    if (pending.step === "photo") {
+      await tgSend(env, chatId, "Please send an actual photo (attach an image) — a photo is required.");
+      return;
+    }
+  }
+
+  if (pending.type === "roster_edit") {
+    if (pending.field === "photo") {
+      if (text.trim().toLowerCase() === "cancel") {
+        await clearPending(env, fromId);
+        const view = await buildRosterDetailView(env, pending.memberId);
+        await tgSend(env, chatId, `Cancelled — photo unchanged.\n\n${view.text}`, view.keyboard);
+        return;
+      }
+      await tgSend(env, chatId, "Please send an actual photo, or type 'cancel' to keep the current one.");
+      return;
+    }
+
+    const roster = await getRoster(env);
+    const member = roster.find((m) => m.id === pending.memberId);
+    if (!member) {
+      await clearPending(env, fromId);
+      await tgSend(env, chatId, "That member no longer exists.");
+      return;
+    }
+    member[pending.field] = text;
+    await saveRoster(env, roster);
+    await clearPending(env, fromId);
+    const view = await buildRosterDetailView(env, pending.memberId);
+    await tgSend(env, chatId, `✅ Updated ${pending.field}.\n\n${view.text}`, view.keyboard);
+  }
+}
+
+// Handles an incoming Telegram photo message during a roster add/edit flow —
+// downloads the largest available size (Telegram lists photo sizes
+// smallest-to-largest) and stores it in ROSTER_BUCKET.
+async function handleRosterPhotoMessage(env, chatId, fromId, message, pending) {
+  const sizes = message.photo || [];
+  if (!sizes.length) return;
+  const best = sizes[sizes.length - 1];
+
+  let downloaded;
+  try {
+    downloaded = await tgDownloadFile(env, best.file_id);
+  } catch (err) {
+    console.error("Roster photo download failed:", err?.message || err);
+    await tgSend(env, chatId, "Couldn't download that photo — try sending it again.");
+    return;
+  }
+
+  if (pending.type === "roster_add") {
+    const roster = await getRoster(env);
+    const id = randomId();
+    await uploadRosterPhoto(env, id, downloaded.bytes, downloaded.contentType);
+    const member = {
+      id,
+      name: pending.name,
+      role: pending.role,
+      experience: pending.experience || "",
+      bio: pending.bio || "",
+      hasPhoto: true,
+    };
+    roster.push(member);
+    await saveRoster(env, roster);
+    await clearPending(env, fromId);
+    const { text, keyboard } = await buildRosterView(env);
+    await tgSend(env, chatId, `✅ Added ${escapeHtml(member.name)} to the website roster.\n\n${text}`, keyboard);
+    return;
+  }
+
+  if (pending.type === "roster_edit" && pending.field === "photo") {
+    const roster = await getRoster(env);
+    const member = roster.find((m) => m.id === pending.memberId);
+    if (!member) {
+      await clearPending(env, fromId);
+      await tgSend(env, chatId, "That member no longer exists.");
+      return;
+    }
+    await uploadRosterPhoto(env, pending.memberId, downloaded.bytes, downloaded.contentType);
+    member.hasPhoto = true;
+    await saveRoster(env, roster);
+    await clearPending(env, fromId);
+    const view = await buildRosterDetailView(env, pending.memberId);
+    await tgSend(env, chatId, `✅ Photo updated.\n\n${view.text}`, view.keyboard);
+  }
+}
+
 // Cache each Telegram user's username/name whenever they interact with the
 // bot, so the admin list can show "@username" instead of a bare numeric ID —
 // /addmember only ever supplies an ID, Telegram never hands us a profile for
@@ -664,6 +878,49 @@ async function buildLanesView(env) {
   };
 }
 
+async function buildRosterView(env) {
+  const roster = await getRoster(env);
+  const keyboard = {
+    inline_keyboard: [
+      ...roster.map((m) => [
+        { text: `${m.name} — ${m.role}`, callback_data: `roster:view:${m.id}` },
+      ]),
+      [{ text: "+ Add Member", callback_data: "roster:add" }],
+      [{ text: "« Back", callback_data: "menu:home" }],
+    ],
+  };
+  return {
+    text: roster.length ? "📸 Website team roster — tap someone to edit or remove them:" : "📸 No team members yet.",
+    keyboard,
+  };
+}
+
+async function buildRosterDetailView(env, id) {
+  const roster = await getRoster(env);
+  const member = roster.find((m) => m.id === id);
+  if (!member) return null;
+
+  const lines = [`📸 ${escapeHtml(member.name)}`, `Role: ${escapeHtml(member.role)}`];
+  if (member.experience) lines.push(`Experience: ${escapeHtml(member.experience)}`);
+  if (member.bio) lines.push(`Bio: ${escapeHtml(member.bio)}`);
+  lines.push(`Photo: ${member.hasPhoto ? "✅ set" : "❌ none"}`);
+
+  return {
+    text: lines.join("\n"),
+    keyboard: {
+      inline_keyboard: [
+        [{ text: "✏️ Edit Name", callback_data: `roster:edit:${id}:name` }],
+        [{ text: "✏️ Edit Role", callback_data: `roster:edit:${id}:role` }],
+        [{ text: "✏️ Edit Experience", callback_data: `roster:edit:${id}:experience` }],
+        [{ text: "✏️ Edit Bio", callback_data: `roster:edit:${id}:bio` }],
+        [{ text: "🖼 Replace Photo", callback_data: `roster:edit:${id}:photo` }],
+        [{ text: "🗑 Remove", callback_data: `roster:confirmremove:${id}` }],
+        [{ text: "« Back to Roster", callback_data: "menu:roster" }],
+      ],
+    },
+  };
+}
+
 function laneStatusKeyboard(idx, callbackPrefix) {
   return {
     inline_keyboard: [
@@ -732,6 +989,23 @@ async function tgSendDocument(env, chatId, bytes, filename, contentType) {
   return res;
 }
 
+// Downloads a photo the admin sent to the bot (roster add/edit flows) —
+// Telegram only gives you a file_id in the webhook payload; getting the
+// actual bytes is a two-step dance: resolve file_id -> file_path via getFile,
+// then fetch that path from Telegram's separate file-serving host.
+async function tgDownloadFile(env, fileId) {
+  const res = await fetch(`${tgApi(env, "getFile")}?file_id=${encodeURIComponent(fileId)}`);
+  if (!res.ok) throw new Error(`getFile failed: ${await res.text()}`);
+  const data = await res.json();
+  const filePath = data.result?.file_path;
+  if (!filePath) throw new Error("getFile returned no file_path");
+
+  const fileRes = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${filePath}`);
+  if (!fileRes.ok) throw new Error(`File download failed: ${fileRes.status}`);
+  const contentType = fileRes.headers.get("content-type") || "image/jpeg";
+  return { bytes: await fileRes.arrayBuffer(), contentType };
+}
+
 async function tgAnswerCallback(env, callbackQueryId, text) {
   await fetch(tgApi(env, "answerCallbackQuery"), {
     method: "POST",
@@ -744,15 +1018,23 @@ async function tgAnswerCallback(env, callbackQueryId, text) {
 // Bot menu / keyboards
 // ============================================================
 
-function mainMenuKeyboard(paused) {
-  return {
-    inline_keyboard: [
-      [{ text: "👥 Team", callback_data: "menu:admins" }],
-      [{ text: "🛣 Lanes", callback_data: "menu:lanes" }],
-      [{ text: "📊 Stats", callback_data: "menu:stats" }],
-      [{ text: paused ? "▶️ Resume notifications" : "⏸ Pause notifications", callback_data: "menu:toggle_pause" }],
-    ],
-  };
+// The website roster button/actions are deliberately Admin-only — NOT Owner,
+// unlike every other panel feature (lanes, stats, pause, notification team),
+// where Owner and Admin are treated as identical. Client's explicit call for
+// this one feature specifically; don't "fix" this to match the usual pattern.
+function mainMenuKeyboard(paused, role) {
+  const rows = [
+    [{ text: "👥 Team", callback_data: "menu:admins" }],
+    [{ text: "🛣 Lanes", callback_data: "menu:lanes" }],
+  ];
+  if (role === "admin") {
+    rows.push([{ text: "📸 Website Roster", callback_data: "menu:roster" }]);
+  }
+  rows.push(
+    [{ text: "📊 Stats", callback_data: "menu:stats" }],
+    [{ text: paused ? "▶️ Resume notifications" : "⏸ Pause notifications", callback_data: "menu:toggle_pause" }]
+  );
+  return { inline_keyboard: rows };
 }
 
 function roleTag(role) {
@@ -772,6 +1054,13 @@ function hasPanelAccess(person) {
   if (!person) return false;
   const role = person.role || "admin";
   return role === "owner" || role === "admin";
+}
+
+// Stricter than hasPanelAccess — website roster management is Admin-only, not
+// Owner, per explicit client instruction (see mainMenuKeyboard above).
+function hasRosterAccess(person) {
+  if (!person) return false;
+  return (person.role || "admin") === "admin";
 }
 
 // ============================================================
@@ -813,9 +1102,22 @@ async function handleMessage(env, message) {
   await upsertUserProfile(env, message.from);
 
   const pending = await getPending(env, fromId);
-  if (pending && !text.startsWith("/")) {
-    await handlePendingLaneInput(env, chatId, fromId, text, pending);
-    return;
+  if (pending) {
+    const awaitingPhoto =
+      (pending.type === "roster_add" && pending.step === "photo") ||
+      (pending.type === "roster_edit" && pending.field === "photo");
+    if (awaitingPhoto && message.photo) {
+      await handleRosterPhotoMessage(env, chatId, fromId, message, pending);
+      return;
+    }
+    if (!text.startsWith("/")) {
+      if (pending.type === "roster_add" || pending.type === "roster_edit") {
+        await handlePendingRosterInput(env, chatId, fromId, text, pending);
+      } else {
+        await handlePendingLaneInput(env, chatId, fromId, text, pending);
+      }
+      return;
+    }
   }
 
   if (text === "/start" || text === "/menu") {
@@ -837,7 +1139,7 @@ async function handleMessage(env, message) {
       return;
     }
     const paused = await getPaused(env);
-    await tgSend(env, chatId, "🚛 ASF Cargo Admin Panel", mainMenuKeyboard(paused));
+    await tgSend(env, chatId, "🚛 ASF Cargo Admin Panel", mainMenuKeyboard(paused, person.role || "admin"));
     return;
   }
 
@@ -926,7 +1228,7 @@ async function handleCallbackQuery(env, cq) {
 
   if (data === "menu:home") {
     const paused = await getPaused(env);
-    await tgEditMessage(env, chatId, messageId, "🚛 ASF Cargo Admin Panel", mainMenuKeyboard(paused));
+    await tgEditMessage(env, chatId, messageId, "🚛 ASF Cargo Admin Panel", mainMenuKeyboard(paused, requester.role || "admin"));
     await tgAnswerCallback(env, cq.id);
     return;
   }
@@ -1049,10 +1351,134 @@ async function handleCallbackQuery(env, cq) {
     return;
   }
 
+  // Server-side guard, not just a hidden button — website roster management is
+  // Admin-only, not Owner (see mainMenuKeyboard/hasRosterAccess above).
+  const isRosterAction =
+    data === "menu:roster" ||
+    data === "roster:add" ||
+    data.startsWith("rosteradd:skip:") ||
+    data.startsWith("roster:view:") ||
+    data.startsWith("roster:edit:") ||
+    data.startsWith("roster:confirmremove:") ||
+    data.startsWith("roster:doremove:");
+  if (isRosterAction && !hasRosterAccess(requester)) {
+    await tgAnswerCallback(env, cq.id, "Only Admin can manage the website roster.");
+    return;
+  }
+
+  if (data === "menu:roster") {
+    const { text, keyboard } = await buildRosterView(env);
+    await tgEditMessage(env, chatId, messageId, text, keyboard);
+    await tgAnswerCallback(env, cq.id);
+    return;
+  }
+
+  if (data === "roster:add") {
+    await setPending(env, fromId, { type: "roster_add", step: "name" });
+    await tgAnswerCallback(env, cq.id);
+    await tgSend(env, chatId, "What's their name?");
+    return;
+  }
+
+  if (data.startsWith("rosteradd:skip:")) {
+    const field = data.slice("rosteradd:skip:".length);
+    const pending = await getPending(env, fromId);
+    if (!pending || pending.type !== "roster_add" || pending.step !== field) {
+      await tgAnswerCallback(env, cq.id, "That step already finished or expired.");
+      return;
+    }
+    if (field === "experience") {
+      await setPending(env, fromId, { ...pending, step: "bio", experience: "" });
+      await tgAnswerCallback(env, cq.id, "Skipped.");
+      await tgSend(env, chatId, "Short bio line?", {
+        inline_keyboard: [[{ text: "⏭ Skip", callback_data: "rosteradd:skip:bio" }]],
+      });
+      return;
+    }
+    if (field === "bio") {
+      await setPending(env, fromId, { ...pending, step: "photo", bio: "" });
+      await tgAnswerCallback(env, cq.id, "Skipped.");
+      await tgSend(env, chatId, "Now send their photo (as a Telegram photo, not a file).");
+      return;
+    }
+    await tgAnswerCallback(env, cq.id);
+    return;
+  }
+
+  if (data.startsWith("roster:view:")) {
+    const id = data.slice("roster:view:".length);
+    const view = await buildRosterDetailView(env, id);
+    if (!view) {
+      await tgAnswerCallback(env, cq.id, "That member no longer exists.");
+      return;
+    }
+    await tgEditMessage(env, chatId, messageId, view.text, view.keyboard);
+    await tgAnswerCallback(env, cq.id);
+    return;
+  }
+
+  if (data.startsWith("roster:edit:")) {
+    const [, , id, field] = data.split(":");
+    if (!["name", "role", "experience", "bio", "photo"].includes(field)) {
+      await tgAnswerCallback(env, cq.id, "Invalid field.");
+      return;
+    }
+    await setPending(env, fromId, { type: "roster_edit", memberId: id, field });
+    await tgAnswerCallback(env, cq.id);
+    const prompt = field === "photo"
+      ? "Send the new photo (as a Telegram photo), or type 'cancel' to keep the current one."
+      : `Send the new ${field}.`;
+    await tgSend(env, chatId, prompt);
+    return;
+  }
+
+  if (data.startsWith("roster:confirmremove:")) {
+    const id = data.slice("roster:confirmremove:".length);
+    const roster = await getRoster(env);
+    const member = roster.find((m) => m.id === id);
+    if (!member) {
+      await tgAnswerCallback(env, cq.id, "That member no longer exists.");
+      return;
+    }
+    await tgEditMessage(
+      env,
+      chatId,
+      messageId,
+      `⚠️ Remove ${escapeHtml(member.name)} from the website roster?\nThis can't be undone.`,
+      {
+        inline_keyboard: [
+          [{ text: "✅ Yes, remove it", callback_data: `roster:doremove:${id}` }],
+          [{ text: "✕ Cancel", callback_data: `roster:view:${id}` }],
+        ],
+      }
+    );
+    await tgAnswerCallback(env, cq.id);
+    return;
+  }
+
+  if (data.startsWith("roster:doremove:")) {
+    const id = data.slice("roster:doremove:".length);
+    let roster = await getRoster(env);
+    const removed = roster.find((m) => m.id === id);
+    roster = roster.filter((m) => m.id !== id);
+    await saveRoster(env, roster);
+    if (removed?.hasPhoto) {
+      try {
+        await deleteRosterPhoto(env, id);
+      } catch (err) {
+        console.error("Roster photo delete failed:", err?.message || err);
+      }
+    }
+    const { text, keyboard } = await buildRosterView(env);
+    await tgEditMessage(env, chatId, messageId, text, keyboard);
+    await tgAnswerCallback(env, cq.id, removed ? `Removed ${removed.name}` : "Removed");
+    return;
+  }
+
   if (data === "menu:toggle_pause") {
     const wasPaused = await getPaused(env);
     await setPaused(env, !wasPaused);
-    await tgEditMessage(env, chatId, messageId, "🚛 ASF Cargo Admin Panel", mainMenuKeyboard(!wasPaused));
+    await tgEditMessage(env, chatId, messageId, "🚛 ASF Cargo Admin Panel", mainMenuKeyboard(!wasPaused, requester.role || "admin"));
     await tgAnswerCallback(env, cq.id, wasPaused ? "Notifications resumed" : "Notifications paused");
     return;
   }

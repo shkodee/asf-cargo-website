@@ -1,9 +1,10 @@
 import { Users } from 'lucide-react';
-import { teamMembers } from '../../data/content';
+import { useTeamRoster } from '../../hooks/useTeamRoster';
 import SectionHeading from '../UI/SectionHeading';
 import Reveal from '../UI/Reveal';
 
 export default function TeamSection() {
+  const teamMembers = useTeamRoster();
   return (
     <section className="section" id="team">
       <div className="wrap">

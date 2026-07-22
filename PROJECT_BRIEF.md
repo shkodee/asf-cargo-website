@@ -6,6 +6,21 @@
 > update the relevant section here, not just in chat.
 
 ## Current status (as of 2026-07-15, end of session)
+- ✅ **Hero logo badge replaced with a looping truck video** (2026-07-22) — `Hero.tsx` plays
+  `public/hero-truck.mp4` (AI-generated via Higgsfield) instead of the static `logo.png`. Two
+  copies crossfade at the loop boundary for a seamless repeat, both starting 0.3s in to skip the
+  clip's opening white-flash frame. Crop favors the front of the truck (`object-position: left`,
+  `aspect-ratio: 1.15`) since the rear tandem wheels don't rotate correctly in the generated
+  footage — cropped out of frame rather than shown broken. No entrance animation, per feedback —
+  it's just present and already rolling. See "Hero truck video" section below.
+- ✅ **About page team roster is now bot-editable** (2026-07-22) — Owner/Admin can add, edit
+  (name/role/experience/bio/photo), and remove team members straight from Telegram's
+  **📸 Website Roster** panel button, no redeploy needed. Same live-data pattern as lanes: `GET
+  /roster` + `GET /roster-photo/:id` on the relay Worker, KV + a new R2 bucket
+  (`asf-cargo-roster-photos`) for storage, `content.ts`'s `teamMembers` now fallback-only. Seeded
+  with the existing 5 members (Hugo, Tessa, Sam, Nate, Ben) so nothing was lost in the switch —
+  see "Team roster via the Telegram bot" section below. This supersedes the old "bios are DRAFT"
+  TODO note — the client can edit them directly, anytime, no code change or my involvement needed.
 - ✅ Site is **live and auto-deploying**: https://asf-cargo-website.afzaljon0411.workers.dev, plus
   the custom domain (see below) — all three URLs confirmed serving.
 - ✅ Rebuilt as **React + TypeScript + Vite** — Cloudflare Build command (`npm run build`) is
@@ -166,7 +181,8 @@ This project spans two separate Cloudflare Workers under one Cloudflare account
 | Cloudflare Worker name | `asf-cargo-website` | `asf-cargo-relay` |
 | URL | https://asf-cargo-website.afzaljon0411.workers.dev | https://asf-cargo-relay.afzaljon0411.workers.dev |
 | Deploy method | Auto, via GitHub integration (push to `main`) | **Via `wrangler deploy`** from `asf-cargo/worker/` (as of 2026-07-15 — dashboard paste still works as a fallback, see `worker/README.md`) |
-| Config | `asf-cargo/wrangler.jsonc` (static assets from `./dist`, root dir `asf-cargo`, deploy command `npx wrangler deploy`, build command `npm run build`, `workers_dev: true`, `routes` with `custom_domain: true` for the apex + `www`) | `asf-cargo/worker/wrangler.jsonc` (added 2026-07-15 — deliberately separate from the site's config one directory up, so a deploy from `worker/` never picks up the site's `dist/` assets by accident; also binds the `ASF_BOT_KV` KV namespace the Telegram bot's team/state live in, see "Telegram admin bot") |
+| Config | `asf-cargo/wrangler.jsonc` (static assets from `./dist`, root dir `asf-cargo`, deploy command `npx wrangler deploy`, build command `npm run build`, `workers_dev: true`, `routes` with `custom_domain: true` for the apex + `www`) | `asf-cargo/worker/wrangler.jsonc` (added 2026-07-15 — deliberately separate from the site's config one directory up, so a deploy from `worker/` never picks up the site's `dist/` assets by accident; also binds the `ASF_BOT_KV` KV namespace the Telegram bot's team/state live in, plus the
+  `CDL_BUCKET` and `ROSTER_BUCKET` R2 buckets, see "Telegram admin bot") |
 
 **Wrangler CLI is authenticated on this machine** (ran `wrangler login` 2026-07-15, browser OAuth
 flow). To redeploy either Worker from a fresh session: `cd` into `asf-cargo/` (site) or
@@ -346,9 +362,13 @@ managed team and an inline admin panel. **This repo's public on GitHub — don't
 commit real people's numeric Telegram chat IDs into this file or any tracked file;**
 they live only in Cloudflare KV, never in git.
 
-**Three routes in one Worker** (`worker/worker.js`'s top-level `fetch` dispatches by
-`pathname`):
+**Routes in one Worker** (`worker/worker.js`'s top-level `fetch` dispatches by `pathname` —
+this list drifted out of date once before when `/lanes` shipped without updating it here;
+keep it current):
 - `POST /` — the application form's relay endpoint (unchanged contract, CORS-protected)
+- `GET /lanes` — public, live lane list for the homepage (see "Lanes: live data + map")
+- `GET /roster` / `GET /roster-photo/:id` — public, live About page team roster + photos
+  (see "Team roster via the Telegram bot")
 - `POST /telegram-webhook` — Telegram delivers bot updates (messages, button taps)
   here; verified via the `X-Telegram-Bot-Api-Secret-Token` header matching
   `TELEGRAM_WEBHOOK_SECRET`, so nobody else can inject fake bot commands
@@ -367,6 +387,11 @@ own team live, no redeploy required:
   Telegram DM step, the form and email still work while paused.
 - `applications` — capped array (last 1000) of ISO timestamps, one per legitimate
   (non-honeypot) form submission, powers the Stats view.
+- `lanes` — JSON array, the live source for the homepage's Lanes section (see "Lanes: live
+  data + map").
+- `roster` — JSON array of `{ id, name, role, experience, bio, hasPhoto }`, the live source
+  for the About page's team section (see "Team roster via the Telegram bot"). Photos
+  themselves live in the separate `ROSTER_BUCKET` R2 bucket, not KV.
 - `profile:<id>` — cached `{ username, firstName }` per Telegram user, captured
   opportunistically on every message/button tap. This is the *only* way the bot
   ever learns someone's username — `/addmember` only ever gets a numeric ID, and
@@ -529,6 +554,77 @@ the confirmed final layout.
   HTML5 `required`. Co-driver block also gained `coDriverEmail`/`coDriverCity` fields, mirroring
   the primary applicant's `email`/`city`.
 
+## Hero truck video (`Hero.tsx`)
+Replaced the homepage hero's circular logo badge (2026-07-22) with a looping video of the truck
+instead — same slot, same drop-shadow treatment, no `logo.png` there anymore (the header/footer
+still use the logo normally).
+
+- **The clip (`public/hero-truck.mp4`)** was generated via Higgsfield (Minimax Hailuo,
+  image-to-video from `public/truck.png`) — see chat history for the generation/credit-budget
+  detail if this ever needs regenerating. **Known defect, not fixable in CSS:** the rear tandem
+  wheels don't rotate correctly (confirmed by pixel-diffing multiple frames — the rear region
+  changes 3-5x less than the front wheel region). Worked around by cropping it out of frame
+  entirely rather than shipping a visibly broken wheel.
+- **Crop**: `.hero-truck-stack` is `aspect-ratio: 1.15` (wider than a square, was 1:1 in an
+  earlier pass), `.hero-truck-video` is `object-fit: cover; object-position: left center` — fully
+  anchored left so nothing is trimmed off the front bumper, with the excess cropped entirely from
+  the right, comfortably before the rear tandem starts (~83% of native frame width, measured).
+  `.hero-truck-fade`'s radial vignette and the linear-gradient edge mask on the video itself blend
+  it into the navy hero background rather than reading as a hard-edged video rectangle.
+- **Perfect loop**: two `<video>` elements (`hero-truck-video` ×2 in `Hero.tsx`) crossfade at the
+  loop boundary — `LOOP_CROSSFADE_SECONDS` (0.5s) before the playing one ends, the idle copy seeks
+  to `CLIP_START_SECONDS` and starts playing, fading in as the first fades out and pauses. Both
+  **start at 0.3s, not 0** — the source clip opens on a white flash before the scene settles
+  (verified frame-by-frame), so starting past it means the flash never shows, not on first load
+  and not on any repeat.
+- **No entrance animation** — an earlier pass had a slide-in-from-the-side `heroTruckIn` keyframe;
+  removed per feedback, it's just present and already rolling from first paint.
+- **Real bug hit and fixed along the way**: `.hero-art { max-width: 360px; margin: 0 auto; }`
+  collapsed to a **0×0 box on mobile** — a CSS Grid item with auto horizontal margins sizes to its
+  *content* rather than stretching, and `.hero-art`'s only children are `position: absolute` (for
+  the crossfade), contributing zero intrinsic size. Fixed with an explicit
+  `width: min(360px, 100%)` instead of `max-width`, which gives the auto-margins a real box to
+  center. Worth remembering if any other absolutely-positioned-children component gets `margin: 0
+  auto` centering later.
+
+## Team roster via the Telegram bot
+The About page's "Meet the Team" roster (2026-07-22) got the same live-editing treatment lanes
+already had — **don't confuse this with the bot's existing "👥 Team" panel**, which manages who
+gets DMed about applications (Owner/Admin/Member notification roles); this is unrelated, purely
+about the public-facing team cards on the About page.
+
+- **`📸 Website Roster`** button in the main panel (Owner/Admin only, same `hasPanelAccess()` gate
+  lanes use) — lists every member as a tappable row; tapping one opens a detail view with
+  **✏️ Edit Name / Role / Experience / Bio**, **🖼 Replace Photo**, and **🗑 Remove** (two-tap
+  confirm, same pattern as removing a lane), plus **+ Add Member** and **« Back** in the list view.
+- **Add flow** is a short conversation (`pending` state in KV, same 10-min-TTL mechanism lanes'
+  add-flow uses): name → role → experience (skippable via a button or typing anything) → bio
+  (skippable) → **photo** — the one genuinely new piece versus lanes: Telegram gives the bot a
+  `file_id` for an incoming photo message, not bytes directly, so `tgDownloadFile()` resolves it
+  via `getFile` then downloads from Telegram's file-serving host before it's uploaded to R2.
+- **Storage**: KV key `"roster"` (array of `{ id, name, role, experience, bio, hasPhoto }`, `id`
+  via the same `randomId()` helper CDL docs use) + a **separate R2 bucket**
+  (`asf-cargo-roster-photos`, bound as `ROSTER_BUCKET`) for photos, keyed `roster/<id>`.
+  Deliberately not the same bucket as `CDL_BUCKET` — these photos are genuinely public marketing
+  content (same sensitivity as the old static `public/team/*.jpg` files), CDL docs must stay
+  private, and keeping them in separate buckets makes that distinction trivial to reason about.
+- **Public routes on the relay Worker**: `GET /roster` (JSON, same shape the site needs) and
+  `GET /roster-photo/:id` (streams the image from R2, `Cache-Control: public, max-age=3600` since
+  a photo only changes via an explicit "Replace Photo" action). No auth on the photo route — it's
+  public content, not a privacy-sensitive document like a CDL photo.
+- **Frontend**: `useTeamRoster.ts` (mirrors `useLanes.ts` exactly) fetches `GET /roster`, falls
+  back to `content.ts`'s static `teamMembers` array on any failure. `TeamSection.tsx` itself didn't
+  need to change — the hook normalizes live data to the same `TeamMember` shape.
+- **Seeded on rollout**: the existing 5 members (Hugo, Tessa, Sam, Nate, Ben) were uploaded to the
+  new bucket/KV from the CLI (`wrangler r2 object put ... --remote` + `wrangler kv key put ...
+  --remote`) so the panel wasn't empty on day one — nothing was lost switching over from the
+  static array.
+- **Gotcha hit during setup, worth remembering:** `wrangler r2 object put` (and `wrangler kv key
+  put`) default to a **local** simulated store, not the actual deployed bucket/namespace — need
+  `--remote` explicitly, or the upload silently goes nowhere the live Worker can see. Caught by
+  checking `GET /roster-photo/hugo` right after the first (local, wrong) upload attempt and
+  getting a 404.
+
 ## About page (`about.html` / `AboutPage.tsx`)
 Third page, shipped 2026-07-16, same `SiteLayout` (Header + ScrollProgressBar + Footer) as the
 other two pages, plus its own `page-hero` banner. Two new dependencies: `framer-motion` (scroll-
@@ -613,7 +709,9 @@ c:\asf-cargo-website\            # git repo root
     ├── public/
     │   ├── logo.png                 # bordered/transparent badge, user-supplied, served at /logo.png
     │   ├── truck.png / van.png / flatbed.png   # equipment card photos, user-supplied
-    │   ├── team/                    # hugo.jpg, tessa.jpg, sam.jpg, nate.jpg, ben.jpg — About page team photos
+    │   ├── hero-truck.mp4            # homepage hero video (replaced the logo badge, see "Hero truck video")
+    │   ├── team/                    # hugo.jpg, tessa.jpg, sam.jpg, nate.jpg, ben.jpg — fallback-only now,
+    │   │                             # live roster photos are in the ROSTER_BUCKET R2 bucket, not here
     │   ├── robots.txt               # points crawlers at sitemap.xml
     │   └── sitemap.xml              # lists / and /apply.html
     ├── dist/                       # BUILD OUTPUT, gitignored — what actually gets deployed
@@ -627,7 +725,8 @@ c:\asf-cargo-website\            # git repo root
     │   │   ├── home/                       # Hero, PayCard(+Section), DispatchBoard(+Section), LaneMap, LaneRow, EquipmentCard(+Section), RequirementItem, RequirementsSection, ContactCard(+Section), CtaBand
     │   │   ├── about/                      # AboutSection.tsx, TeamSection.tsx — see "About page" section above
     │   │   └── apply/ApplicationForm.tsx     # includes the co-driver block, see above
-    │   ├── hooks/useScrollReveal.ts, useLanes.ts   # useLanes fetches live lane data from the relay Worker
+    │   ├── hooks/useScrollReveal.ts, useLanes.ts, useTeamRoster.ts   # both *.ts hooks fetch live data
+    │   │                             # from the relay Worker (lanes / team roster respectively)
     │   ├── api/apply.ts                 # submitApplication() — POSTs to the relay Worker, contract with worker/worker.js
     │   ├── types/index.ts
     │   ├── data/content.ts               # ALL business copy lives here — single source of truth (lanes are now the *fallback* only, see "Lanes: live data + map")
