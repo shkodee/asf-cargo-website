@@ -25,6 +25,11 @@ any of these. The stray `photo_2026-07-15_05-05-11.jpg` file has been deleted. T
 
 ## ✅ Shipped 2026-07-15/16, live and verified
 
+- [x] **Privacy Policy page added** (2026-07-22) — new `/privacy.html`, linked from the footer on
+      every page and added to `sitemap.xml`. Describes what the apply form actually collects and
+      how it's actually handled (Telegram relay, no database; optional CDL doc in a private R2
+      bucket) — grounded in the real data flows in `worker/worker.js`, not boilerplate. Not a
+      substitute for legal review if that's ever wanted.
 - [x] **Founding year (2023) added** (2026-07-22) — client confirmed the company was opened in
       2023. Added `company.foundedYear` in `content.ts` and threaded it everywhere relevant: the
       About page story opens with "Founded in 2023", a new dynamically-computed "Years Running"

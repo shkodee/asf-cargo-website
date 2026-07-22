@@ -21,6 +21,7 @@ export default function Footer() {
             <a href="/#lanes">Lanes</a>
             <a href="/apply.html">Apply Now</a>
             <a href="/#contact">Contact</a>
+            <a href="/privacy.html">Privacy Policy</a>
           </div>
           <div>
             <h4>Company</h4>

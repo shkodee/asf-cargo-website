@@ -11,6 +11,7 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html'),
         apply: resolve(__dirname, 'apply.html'),
         about: resolve(__dirname, 'about.html'),
+        privacy: resolve(__dirname, 'privacy.html'),
         notFound: resolve(__dirname, '404.html'),
       },
     },

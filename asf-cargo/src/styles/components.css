@@ -355,6 +355,19 @@
 .page-hero h1 { color: var(--white); font-size: clamp(2.2rem, 5vw, 3.4rem); }
 .page-hero p { color: var(--chrome); margin-top: 12px; }
 
+/* ===== Legal pages (privacy, etc.) ===== */
+.legal-content { max-width: 720px; }
+.legal-content h3 { color: var(--navy); margin: 40px 0 12px; }
+.legal-content h3:first-of-type { margin-top: 8px; }
+.legal-content p { max-width: none; }
+.legal-content ul { margin: 0 0 1em; padding-left: 22px; color: var(--steel); }
+.legal-content ul li { margin-bottom: 8px; }
+.legal-content a { color: var(--red); text-decoration: underline; }
+.legal-updated {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--red); margin-bottom: 24px !important;
+}
+
 /* ===== About page ===== */
 .about-section { padding: 86px 0 40px; }
 .about-head { max-width: 680px; margin: 0 auto 32px; text-align: center; }
