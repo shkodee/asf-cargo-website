@@ -32,7 +32,7 @@ export default function Footer() {
           </div>
         </div>
         <div className="foot-bottom">
-          <span>© {new Date().getFullYear()} {company.name} — {company.mc} · {company.dot}</span>
+          <span>© {new Date().getFullYear()} {company.name} — Est. {company.foundedYear} — {company.mc} · {company.dot}</span>
           <span>All rights reserved.</span>
         </div>
       </div>

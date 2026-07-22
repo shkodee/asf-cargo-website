@@ -25,6 +25,13 @@ any of these. The stray `photo_2026-07-15_05-05-11.jpg` file has been deleted. T
 
 ## ✅ Shipped 2026-07-15/16, live and verified
 
+- [x] **Founding year (2023) added** (2026-07-22) — client confirmed the company was opened in
+      2023. Added `company.foundedYear` in `content.ts` and threaded it everywhere relevant: the
+      About page story opens with "Founded in 2023", a new dynamically-computed "Years Running"
+      stat (About page stat grid, now 5 stats), the About page meta description, the footer's
+      "Est. 2023" credit line, and `foundingDate` on the `Organization` schema in the homepage's
+      JobPosting JSON-LD. Team photos on the About page are now also clickable (same
+      click-to-enlarge lightbox pattern as the Equipment cards) — see `TeamLightbox.tsx`.
 - [x] **Hero logo replaced with a looping truck video** (2026-07-22) — homepage hero now plays
       `hero-truck.mp4` instead of the static badge; seamless crossfade loop, opening white-flash
       trimmed, cropped to hide a known wheel-rotation defect in the generated clip. See

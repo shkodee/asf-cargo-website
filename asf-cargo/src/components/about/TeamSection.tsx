@@ -1,10 +1,14 @@
+import { useState } from 'react';
 import { Users } from 'lucide-react';
 import { useTeamRoster } from '../../hooks/useTeamRoster';
 import SectionHeading from '../UI/SectionHeading';
 import Reveal from '../UI/Reveal';
+import TeamLightbox from './TeamLightbox';
+import type { TeamMember } from '../../types';
 
 export default function TeamSection() {
   const teamMembers = useTeamRoster();
+  const [lightboxMember, setLightboxMember] = useState<TeamMember | null>(null);
   return (
     <section className="section" id="team">
       <div className="wrap">
@@ -22,9 +26,15 @@ export default function TeamSection() {
             <div className="team-track">
               {[...teamMembers, ...teamMembers].map((member, i) => (
                 <div className="team-card" key={`${member.name}-${i}`}>
-                  <div className="team-card-photo">
+                  <button
+                    type="button"
+                    className="team-card-photo"
+                    onClick={() => setLightboxMember(member)}
+                    aria-label={`View larger photo of ${member.name}`}
+                  >
                     <img src={member.image} alt={member.name} loading="lazy" />
-                  </div>
+                    <span className="team-card-hint">Click to enlarge</span>
+                  </button>
                   <div className="team-card-info">
                     <h3>{member.name}</h3>
                     <p>{member.role}</p>
@@ -37,6 +47,7 @@ export default function TeamSection() {
           </div>
         )}
       </div>
+      <TeamLightbox member={lightboxMember} onClose={() => setLightboxMember(null)} />
     </section>
   );
 }

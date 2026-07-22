@@ -19,6 +19,7 @@ export const company = {
   dot: 'DOT 4125298',
   mcNum: 'MC# 1578558',
   dotNum: 'DOT# 4125298',
+  foundedYear: 2023,
 };
 
 export const lanes: Lane[] = [
@@ -195,6 +196,7 @@ export interface AboutStat {
 }
 
 export const getAboutStats = (laneCount: number): AboutStat[] => [
+  { value: new Date().getFullYear() - company.foundedYear, suffix: '+', label: 'Years Running' },
   { value: laneCount, suffix: '+', label: 'Daily Lanes' },
   { value: equipment.length, label: 'Freight Types' },
   { value: 0.75, decimals: 2, prefix: '$', suffix: '/mi', label: 'Up to, Solo Pay' },
@@ -204,11 +206,11 @@ export const getAboutStats = (laneCount: number): AboutStat[] => [
 /**
  * DRAFT company story copy — client asked for a first pass to edit, not confirmed
  * marketing claims. Keep to voice/mission framing, not invented history, numbers,
- * or achievements (no founding date, fleet size, awards — nothing verifiable was
- * supplied, so nothing verifiable is asserted here).
+ * or achievements beyond the founding year — nothing else verifiable was supplied,
+ * so nothing else verifiable is asserted here.
  */
 export const aboutStory: string[] = [
-  `ASF Cargo LLC was built around a simple idea: keep drivers loaded, keep them moving, and pay them fairly for the miles they run. We're a licensed, DOT-registered carrier (${company.mcNum} / ${company.dotNum}) running daily freight lanes across the East Coast and Midwest.`,
+  `Founded in ${company.foundedYear}, ASF Cargo LLC was built around a simple idea: keep drivers loaded, keep them moving, and pay them fairly for the miles they run. We're a licensed, DOT-registered carrier (${company.mcNum} / ${company.dotNum}) running daily freight lanes across the East Coast and Midwest.`,
   "Whether you're behind the wheel solo or running as a team, we keep the freight consistent, the equipment modern, and the dispatch line answered by a real person — not a call center.",
 ];
 
