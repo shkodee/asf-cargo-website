@@ -801,13 +801,15 @@ async function handlePendingRosterInput(env, chatId, fromId, text, pending) {
 // message is "typed input" just like text.
 async function handleRosterPhotoMessage(env, chatId, fromId, message, pending) {
   const anchor = pending.anchorMessageId;
+  // Compressed photo: array of sizes, take the largest. Uncompressed file:
+  // a single document whose mime_type the caller already confirmed is an image.
   const sizes = message.photo || [];
-  if (!sizes.length) return;
-  const best = sizes[sizes.length - 1];
+  const fileId = sizes.length ? sizes[sizes.length - 1].file_id : message.document?.file_id;
+  if (!fileId) return;
 
   let downloaded;
   try {
-    downloaded = await tgDownloadFile(env, best.file_id);
+    downloaded = await tgDownloadFile(env, fileId);
   } catch (err) {
     console.error("Roster photo download failed:", err?.message || err);
     const next = await tgAdvanceMessage(env, chatId, anchor, "Couldn't download that photo — try sending it again.", cancelKeyboard("roster:cancelflow"));
@@ -1188,7 +1190,13 @@ async function handleMessage(env, message) {
     const awaitingPhoto =
       (pending.type === "roster_add" && pending.step === "photo") ||
       (pending.type === "roster_edit" && pending.field === "photo");
-    if (awaitingPhoto && message.photo) {
+    // Telegram can deliver an image two ways: a compressed "photo" (message.photo,
+    // an array of sizes) or an uncompressed "file" (message.document — e.g. if the
+    // sender picked "send without compression" or attached from Files instead of
+    // the photo picker). Both are valid input here; only rejecting non-image
+    // documents (a PDF, a .txt, etc).
+    const hasUsablePhoto = !!message.photo || (message.document && message.document.mime_type?.startsWith("image/"));
+    if (awaitingPhoto && hasUsablePhoto) {
       await handleRosterPhotoMessage(env, chatId, fromId, message, pending);
       return;
     }
