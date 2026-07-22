@@ -157,7 +157,12 @@ async function handleGetRoster(request, env) {
     role: m.role,
     experience: m.experience || undefined,
     bio: m.bio || undefined,
-    photoUrl: m.hasPhoto ? `${origin}/roster-photo/${m.id}` : undefined,
+    // ?v=<upload timestamp> cache-busts the URL itself whenever the photo is
+    // actually replaced — see handleGetRosterPhoto for why this matters more
+    // than it looks (the id-based URL never changes on its own).
+    photoUrl: m.hasPhoto
+      ? `${origin}/roster-photo/${m.id}?v=${encodeURIComponent(m.photoUpdatedAt || "0")}`
+      : undefined,
   }));
   return new Response(JSON.stringify({ members }), {
     status: 200,
@@ -181,9 +186,14 @@ async function handleGetRosterPhoto(request, env, id) {
     status: 200,
     headers: {
       "Content-Type": object.httpMetadata?.contentType || "image/jpeg",
-      // Photos change rarely (only via an explicit "Replace Photo" bot action),
-      // so a long cache is safe — worth it since About page loads fetch several.
-      "Cache-Control": "public, max-age=3600",
+      // Long + immutable is only safe because the URL is now versioned via
+      // ?v=<photoUpdatedAt> (see handleGetRoster) — a "Replace Photo" changes
+      // that query param, so the browser/CDN naturally fetch fresh bytes
+      // instead of serving the stale cached image at the old URL forever.
+      // Previously this was a bare id-keyed URL with a 1hr public cache, so
+      // a replaced photo silently kept serving the old image until the cache
+      // expired — that was the actual bug behind "photo isn't changing".
+      "Cache-Control": "public, max-age=31536000, immutable",
     },
   });
 }
@@ -593,29 +603,40 @@ async function clearPending(env, id) {
 // Walks an admin through the two free-text replies the add-lane flow needs
 // (origin, then destination) — each gets geocoded immediately so a bad city
 // name is caught right away instead of failing silently later.
+// Every step **edits the original panel message** (`pending.anchorMessageId`,
+// captured once when the flow started) rather than sending a new one — a
+// multi-step conversation used to leave a trail of 4-5 separate bot messages
+// per lane added, which is exactly the "trash in chat" this was fixed for.
 async function handlePendingLaneInput(env, chatId, fromId, text, pending) {
+  const anchor = pending.anchorMessageId;
+
   if (pending.step === "origin" || pending.step === "dest") {
     let coords;
     try {
       coords = await geocodeCity(text);
     } catch (err) {
       console.error("Geocoding error:", err?.message || err);
-      await tgSend(env, chatId, "Geocoding failed — try again in a moment.");
+      await tgEditMessage(env, chatId, anchor, "Geocoding failed — try again in a moment.", cancelKeyboard("lane:cancelflow"));
       return;
     }
     if (!coords) {
-      await tgSend(env, chatId, `Couldn't find "${escapeHtml(text)}" — try again with the format 'City, ST' (e.g. Memphis, TN).`);
+      await tgEditMessage(
+        env, chatId, anchor,
+        `Couldn't find "${escapeHtml(text)}" — try again with the format 'City, ST' (e.g. Memphis, TN).`,
+        cancelKeyboard("lane:cancelflow")
+      );
       return;
     }
 
     if (pending.step === "origin") {
       await setPending(env, fromId, {
         step: "dest",
+        anchorMessageId: anchor,
         originCity: text,
         originState: stateNameFromCityState(text),
         originCoords: coords,
       });
-      await tgSend(env, chatId, `✅ Origin: ${escapeHtml(text)}\n\nNow send the destination as 'City, ST'.`);
+      await tgEditMessage(env, chatId, anchor, `✅ Origin: ${escapeHtml(text)}\n\nNow send the destination as 'City, ST'.`, cancelKeyboard("lane:cancelflow"));
       return;
     }
 
@@ -626,11 +647,12 @@ async function handlePendingLaneInput(env, chatId, fromId, text, pending) {
       destState: stateNameFromCityState(text),
       destCoords: coords,
     });
-    await tgSend(env, chatId, `✅ Destination: ${escapeHtml(text)}\n\nWhat's the status?`, {
+    await tgEditMessage(env, chatId, anchor, `✅ Destination: ${escapeHtml(text)}\n\nWhat's the status?`, {
       inline_keyboard: [
         [{ text: "Daily", callback_data: "lanestatus:Daily" }],
         [{ text: "Weekly", callback_data: "lanestatus:Weekly" }],
         [{ text: "Paused", callback_data: "lanestatus:Paused" }],
+        [{ text: "✕ Cancel", callback_data: "lane:cancelflow" }],
       ],
     });
     return;
@@ -638,11 +660,11 @@ async function handlePendingLaneInput(env, chatId, fromId, text, pending) {
 
   if (pending.step === "status") {
     // Free-text status typed instead of tapping one of the buttons.
-    await finalizeLane(env, chatId, fromId, { ...pending, status: text });
+    await finalizeLane(env, chatId, fromId, { ...pending, status: text }, anchor);
   }
 }
 
-async function finalizeLane(env, chatId, fromId, draft) {
+async function finalizeLane(env, chatId, fromId, draft, anchorMessageId) {
   const lanes = await getLanes(env);
   const idx = nextLaneIdx(lanes);
   const lane = {
@@ -660,9 +682,10 @@ async function finalizeLane(env, chatId, fromId, draft) {
   await clearPending(env, fromId);
 
   const { text, keyboard } = await buildLanesView(env);
-  await tgSend(
+  await tgEditMessage(
     env,
     chatId,
+    anchorMessageId,
     `✅ Added lane #${idx}: ${escapeHtml(lane.origin)} → ${escapeHtml(lane.dest)} (${escapeHtml(lane.status)})\n\n${text}`,
     keyboard
   );
@@ -690,37 +713,48 @@ async function notifyTeamOfLaneChange(env, action, lane, actorId) {
 // Walks an admin through the free-text steps of adding a new roster member
 // (name -> role -> experience -> bio, experience/bio skippable via button or
 // typing "skip"), and applies a single-field edit for an existing member.
+// Every step **edits the original panel message** (`pending.anchorMessageId`,
+// captured once when the flow started) instead of sending a new one each
+// time — same "don't leave a trail of messages" fix as the lane flow.
 // The one step this can't handle is "photo" — that's routed separately in
 // handleMessage to handleRosterPhotoMessage, since it needs an actual
 // Telegram photo message, not text.
 async function handlePendingRosterInput(env, chatId, fromId, text, pending) {
+  const anchor = pending.anchorMessageId;
+
   if (pending.type === "roster_add") {
     if (pending.step === "name") {
-      await setPending(env, fromId, { type: "roster_add", step: "role", name: text });
-      await tgSend(env, chatId, `✅ Name: ${escapeHtml(text)}\n\nWhat's their role/title? (e.g. "Driver Recruiter")`);
+      await setPending(env, fromId, { type: "roster_add", step: "role", anchorMessageId: anchor, name: text });
+      await tgEditMessage(env, chatId, anchor, `✅ Name: ${escapeHtml(text)}\n\nWhat's their role/title? (e.g. "Driver Recruiter")`, cancelKeyboard("roster:cancelflow"));
       return;
     }
     if (pending.step === "role") {
       await setPending(env, fromId, { ...pending, step: "experience", role: text });
-      await tgSend(env, chatId, `✅ Role: ${escapeHtml(text)}\n\nExperience line? (e.g. "5+ yrs experience")`, {
-        inline_keyboard: [[{ text: "⏭ Skip", callback_data: "rosteradd:skip:experience" }]],
+      await tgEditMessage(env, chatId, anchor, `✅ Role: ${escapeHtml(text)}\n\nExperience line? (e.g. "5+ yrs experience")`, {
+        inline_keyboard: [
+          [{ text: "⏭ Skip", callback_data: "rosteradd:skip:experience" }],
+          [{ text: "✕ Cancel", callback_data: "roster:cancelflow" }],
+        ],
       });
       return;
     }
     if (pending.step === "experience") {
       await setPending(env, fromId, { ...pending, step: "bio", experience: text });
-      await tgSend(env, chatId, `✅ Experience: ${escapeHtml(text)}\n\nShort bio line?`, {
-        inline_keyboard: [[{ text: "⏭ Skip", callback_data: "rosteradd:skip:bio" }]],
+      await tgEditMessage(env, chatId, anchor, `✅ Experience: ${escapeHtml(text)}\n\nShort bio line?`, {
+        inline_keyboard: [
+          [{ text: "⏭ Skip", callback_data: "rosteradd:skip:bio" }],
+          [{ text: "✕ Cancel", callback_data: "roster:cancelflow" }],
+        ],
       });
       return;
     }
     if (pending.step === "bio") {
       await setPending(env, fromId, { ...pending, step: "photo", bio: text });
-      await tgSend(env, chatId, `✅ Bio: ${escapeHtml(text)}\n\nNow send their photo (as a Telegram photo, not a file).`);
+      await tgEditMessage(env, chatId, anchor, `✅ Bio: ${escapeHtml(text)}\n\nNow send their photo (as a Telegram photo, not a file).`, cancelKeyboard("roster:cancelflow"));
       return;
     }
     if (pending.step === "photo") {
-      await tgSend(env, chatId, "Please send an actual photo (attach an image) — a photo is required.");
+      await tgEditMessage(env, chatId, anchor, "Please send an actual photo (attach an image) — a photo is required.", cancelKeyboard("roster:cancelflow"));
       return;
     }
   }
@@ -730,10 +764,10 @@ async function handlePendingRosterInput(env, chatId, fromId, text, pending) {
       if (text.trim().toLowerCase() === "cancel") {
         await clearPending(env, fromId);
         const view = await buildRosterDetailView(env, pending.memberId);
-        await tgSend(env, chatId, `Cancelled — photo unchanged.\n\n${view.text}`, view.keyboard);
+        await tgEditMessage(env, chatId, anchor, `Cancelled — photo unchanged.\n\n${view.text}`, view.keyboard);
         return;
       }
-      await tgSend(env, chatId, "Please send an actual photo, or type 'cancel' to keep the current one.");
+      await tgEditMessage(env, chatId, anchor, "Please send an actual photo, or type 'cancel' to keep the current one.", cancelKeyboard(`roster:view:${pending.memberId}`));
       return;
     }
 
@@ -741,21 +775,23 @@ async function handlePendingRosterInput(env, chatId, fromId, text, pending) {
     const member = roster.find((m) => m.id === pending.memberId);
     if (!member) {
       await clearPending(env, fromId);
-      await tgSend(env, chatId, "That member no longer exists.");
+      await tgEditMessage(env, chatId, anchor, "That member no longer exists.");
       return;
     }
     member[pending.field] = text;
     await saveRoster(env, roster);
     await clearPending(env, fromId);
     const view = await buildRosterDetailView(env, pending.memberId);
-    await tgSend(env, chatId, `✅ Updated ${pending.field}.\n\n${view.text}`, view.keyboard);
+    await tgEditMessage(env, chatId, anchor, `✅ Updated ${pending.field}.\n\n${view.text}`, view.keyboard);
   }
 }
 
 // Handles an incoming Telegram photo message during a roster add/edit flow —
 // downloads the largest available size (Telegram lists photo sizes
-// smallest-to-largest) and stores it in ROSTER_BUCKET.
+// smallest-to-largest) and stores it in ROSTER_BUCKET. Same in-place-edit
+// treatment as the rest of these flows.
 async function handleRosterPhotoMessage(env, chatId, fromId, message, pending) {
+  const anchor = pending.anchorMessageId;
   const sizes = message.photo || [];
   if (!sizes.length) return;
   const best = sizes[sizes.length - 1];
@@ -765,7 +801,7 @@ async function handleRosterPhotoMessage(env, chatId, fromId, message, pending) {
     downloaded = await tgDownloadFile(env, best.file_id);
   } catch (err) {
     console.error("Roster photo download failed:", err?.message || err);
-    await tgSend(env, chatId, "Couldn't download that photo — try sending it again.");
+    await tgEditMessage(env, chatId, anchor, "Couldn't download that photo — try sending it again.", cancelKeyboard("roster:cancelflow"));
     return;
   }
 
@@ -780,12 +816,13 @@ async function handleRosterPhotoMessage(env, chatId, fromId, message, pending) {
       experience: pending.experience || "",
       bio: pending.bio || "",
       hasPhoto: true,
+      photoUpdatedAt: new Date().toISOString(),
     };
     roster.push(member);
     await saveRoster(env, roster);
     await clearPending(env, fromId);
     const { text, keyboard } = await buildRosterView(env);
-    await tgSend(env, chatId, `✅ Added ${escapeHtml(member.name)} to the website roster.\n\n${text}`, keyboard);
+    await tgEditMessage(env, chatId, anchor, `✅ Added ${escapeHtml(member.name)} to the website roster.\n\n${text}`, keyboard);
     return;
   }
 
@@ -794,15 +831,16 @@ async function handleRosterPhotoMessage(env, chatId, fromId, message, pending) {
     const member = roster.find((m) => m.id === pending.memberId);
     if (!member) {
       await clearPending(env, fromId);
-      await tgSend(env, chatId, "That member no longer exists.");
+      await tgEditMessage(env, chatId, anchor, "That member no longer exists.");
       return;
     }
     await uploadRosterPhoto(env, pending.memberId, downloaded.bytes, downloaded.contentType);
     member.hasPhoto = true;
+    member.photoUpdatedAt = new Date().toISOString();
     await saveRoster(env, roster);
     await clearPending(env, fromId);
     const view = await buildRosterDetailView(env, pending.memberId);
-    await tgSend(env, chatId, `✅ Photo updated.\n\n${view.text}`, view.keyboard);
+    await tgEditMessage(env, chatId, anchor, `✅ Photo updated.\n\n${view.text}`, view.keyboard);
   }
 }
 
@@ -919,6 +957,10 @@ async function buildRosterDetailView(env, id) {
       ],
     },
   };
+}
+
+function cancelKeyboard(callbackData) {
+  return { inline_keyboard: [[{ text: "✕ Cancel", callback_data: callbackData }]] };
 }
 
 function laneStatusKeyboard(idx, callbackPrefix) {
@@ -1226,6 +1268,16 @@ async function handleCallbackQuery(env, cq) {
     return;
   }
 
+  // Navigating anywhere else in the panel abandons any in-progress add/edit
+  // conversation — without this, a stale `pending` state could survive a
+  // "Back" tap and misinterpret the admin's next unrelated message as flow
+  // input for up to its 10-minute TTL. Only the two callbacks that *continue*
+  // an existing flow are exempt.
+  const continuesPendingFlow = data.startsWith("lanestatus:") || data.startsWith("rosteradd:skip:");
+  if (!continuesPendingFlow) {
+    await clearPending(env, fromId);
+  }
+
   if (data === "menu:home") {
     const paused = await getPaused(env);
     await tgEditMessage(env, chatId, messageId, "🚛 ASF Cargo Admin Panel", mainMenuKeyboard(paused, requester.role || "admin"));
@@ -1261,9 +1313,16 @@ async function handleCallbackQuery(env, cq) {
   }
 
   if (data === "lane:add") {
-    await setPending(env, fromId, { step: "origin" });
+    await setPending(env, fromId, { step: "origin", anchorMessageId: messageId });
     await tgAnswerCallback(env, cq.id);
-    await tgSend(env, chatId, "Send the origin as 'City, ST' (e.g. Memphis, TN).");
+    await tgEditMessage(env, chatId, messageId, "Send the origin as 'City, ST' (e.g. Memphis, TN).", cancelKeyboard("lane:cancelflow"));
+    return;
+  }
+
+  if (data === "lane:cancelflow") {
+    const { text, keyboard } = await buildLanesView(env);
+    await tgEditMessage(env, chatId, messageId, text, keyboard);
+    await tgAnswerCallback(env, cq.id, "Cancelled.");
     return;
   }
 
@@ -1274,7 +1333,7 @@ async function handleCallbackQuery(env, cq) {
       await tgAnswerCallback(env, cq.id, "That add-lane flow already finished or expired.");
       return;
     }
-    await finalizeLane(env, chatId, fromId, { ...pending, status });
+    await finalizeLane(env, chatId, fromId, { ...pending, status }, pending.anchorMessageId || messageId);
     await tgAnswerCallback(env, cq.id, "Added!");
     return;
   }
@@ -1374,9 +1433,16 @@ async function handleCallbackQuery(env, cq) {
   }
 
   if (data === "roster:add") {
-    await setPending(env, fromId, { type: "roster_add", step: "name" });
+    await setPending(env, fromId, { type: "roster_add", step: "name", anchorMessageId: messageId });
     await tgAnswerCallback(env, cq.id);
-    await tgSend(env, chatId, "What's their name?");
+    await tgEditMessage(env, chatId, messageId, "What's their name?", cancelKeyboard("roster:cancelflow"));
+    return;
+  }
+
+  if (data === "roster:cancelflow") {
+    const { text, keyboard } = await buildRosterView(env);
+    await tgEditMessage(env, chatId, messageId, text, keyboard);
+    await tgAnswerCallback(env, cq.id, "Cancelled.");
     return;
   }
 
@@ -1387,18 +1453,22 @@ async function handleCallbackQuery(env, cq) {
       await tgAnswerCallback(env, cq.id, "That step already finished or expired.");
       return;
     }
+    const anchor = pending.anchorMessageId || messageId;
     if (field === "experience") {
       await setPending(env, fromId, { ...pending, step: "bio", experience: "" });
       await tgAnswerCallback(env, cq.id, "Skipped.");
-      await tgSend(env, chatId, "Short bio line?", {
-        inline_keyboard: [[{ text: "⏭ Skip", callback_data: "rosteradd:skip:bio" }]],
+      await tgEditMessage(env, chatId, anchor, "Short bio line?", {
+        inline_keyboard: [
+          [{ text: "⏭ Skip", callback_data: "rosteradd:skip:bio" }],
+          [{ text: "✕ Cancel", callback_data: "roster:cancelflow" }],
+        ],
       });
       return;
     }
     if (field === "bio") {
       await setPending(env, fromId, { ...pending, step: "photo", bio: "" });
       await tgAnswerCallback(env, cq.id, "Skipped.");
-      await tgSend(env, chatId, "Now send their photo (as a Telegram photo, not a file).");
+      await tgEditMessage(env, chatId, anchor, "Now send their photo (as a Telegram photo, not a file).", cancelKeyboard("roster:cancelflow"));
       return;
     }
     await tgAnswerCallback(env, cq.id);
@@ -1423,12 +1493,12 @@ async function handleCallbackQuery(env, cq) {
       await tgAnswerCallback(env, cq.id, "Invalid field.");
       return;
     }
-    await setPending(env, fromId, { type: "roster_edit", memberId: id, field });
+    await setPending(env, fromId, { type: "roster_edit", memberId: id, field, anchorMessageId: messageId });
     await tgAnswerCallback(env, cq.id);
     const prompt = field === "photo"
       ? "Send the new photo (as a Telegram photo), or type 'cancel' to keep the current one."
       : `Send the new ${field}.`;
-    await tgSend(env, chatId, prompt);
+    await tgEditMessage(env, chatId, messageId, prompt, cancelKeyboard(`roster:view:${id}`));
     return;
   }
 
