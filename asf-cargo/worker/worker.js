@@ -603,10 +603,11 @@ async function clearPending(env, id) {
 // Walks an admin through the two free-text replies the add-lane flow needs
 // (origin, then destination) — each gets geocoded immediately so a bad city
 // name is caught right away instead of failing silently later.
-// Every step **edits the original panel message** (`pending.anchorMessageId`,
-// captured once when the flow started) rather than sending a new one — a
-// multi-step conversation used to leave a trail of 4-5 separate bot messages
-// per lane added, which is exactly the "trash in chat" this was fixed for.
+// Every step here is responding to something the admin *typed*, so it uses
+// tgAdvanceMessage (delete the old bot prompt, send a fresh one) rather than
+// editing in place — an edited message keeps its original position in the
+// chat, which would leave it stranded above the admin's own new message
+// instead of appearing after it.
 async function handlePendingLaneInput(env, chatId, fromId, text, pending) {
   const anchor = pending.anchorMessageId;
 
@@ -616,38 +617,33 @@ async function handlePendingLaneInput(env, chatId, fromId, text, pending) {
       coords = await geocodeCity(text);
     } catch (err) {
       console.error("Geocoding error:", err?.message || err);
-      await tgEditMessage(env, chatId, anchor, "Geocoding failed — try again in a moment.", cancelKeyboard("lane:cancelflow"));
+      const next = await tgAdvanceMessage(env, chatId, anchor, "Geocoding failed — try again in a moment.", cancelKeyboard("lane:cancelflow"));
+      await setPending(env, fromId, { ...pending, anchorMessageId: next });
       return;
     }
     if (!coords) {
-      await tgEditMessage(
+      const next = await tgAdvanceMessage(
         env, chatId, anchor,
         `Couldn't find "${escapeHtml(text)}" — try again with the format 'City, ST' (e.g. Memphis, TN).`,
         cancelKeyboard("lane:cancelflow")
       );
+      await setPending(env, fromId, { ...pending, anchorMessageId: next });
       return;
     }
 
     if (pending.step === "origin") {
+      const next = await tgAdvanceMessage(env, chatId, anchor, `✅ Origin: ${escapeHtml(text)}\n\nNow send the destination as 'City, ST'.`, cancelKeyboard("lane:cancelflow"));
       await setPending(env, fromId, {
         step: "dest",
-        anchorMessageId: anchor,
+        anchorMessageId: next,
         originCity: text,
         originState: stateNameFromCityState(text),
         originCoords: coords,
       });
-      await tgEditMessage(env, chatId, anchor, `✅ Origin: ${escapeHtml(text)}\n\nNow send the destination as 'City, ST'.`, cancelKeyboard("lane:cancelflow"));
       return;
     }
 
-    await setPending(env, fromId, {
-      ...pending,
-      step: "status",
-      destCity: text,
-      destState: stateNameFromCityState(text),
-      destCoords: coords,
-    });
-    await tgEditMessage(env, chatId, anchor, `✅ Destination: ${escapeHtml(text)}\n\nWhat's the status?`, {
+    const next = await tgAdvanceMessage(env, chatId, anchor, `✅ Destination: ${escapeHtml(text)}\n\nWhat's the status?`, {
       inline_keyboard: [
         [{ text: "Daily", callback_data: "lanestatus:Daily" }],
         [{ text: "Weekly", callback_data: "lanestatus:Weekly" }],
@@ -655,16 +651,27 @@ async function handlePendingLaneInput(env, chatId, fromId, text, pending) {
         [{ text: "✕ Cancel", callback_data: "lane:cancelflow" }],
       ],
     });
+    await setPending(env, fromId, {
+      ...pending,
+      step: "status",
+      anchorMessageId: next,
+      destCity: text,
+      destState: stateNameFromCityState(text),
+      destCoords: coords,
+    });
     return;
   }
 
   if (pending.step === "status") {
     // Free-text status typed instead of tapping one of the buttons.
-    await finalizeLane(env, chatId, fromId, { ...pending, status: text }, anchor);
+    await finalizeLane(env, chatId, fromId, { ...pending, status: text }, anchor, true);
   }
 }
 
-async function finalizeLane(env, chatId, fromId, draft, anchorMessageId) {
+// `viaTypedReply` picks tgAdvanceMessage (delete+resend) vs tgEditMessage:
+// this is called both from a button tap (lanestatus:, safe to edit in place)
+// and from the free-text status fallback above (needs the resend treatment).
+async function finalizeLane(env, chatId, fromId, draft, anchorMessageId, viaTypedReply = false) {
   const lanes = await getLanes(env);
   const idx = nextLaneIdx(lanes);
   const lane = {
@@ -682,13 +689,12 @@ async function finalizeLane(env, chatId, fromId, draft, anchorMessageId) {
   await clearPending(env, fromId);
 
   const { text, keyboard } = await buildLanesView(env);
-  await tgEditMessage(
-    env,
-    chatId,
-    anchorMessageId,
-    `✅ Added lane #${idx}: ${escapeHtml(lane.origin)} → ${escapeHtml(lane.dest)} (${escapeHtml(lane.status)})\n\n${text}`,
-    keyboard
-  );
+  const confirmText = `✅ Added lane #${idx}: ${escapeHtml(lane.origin)} → ${escapeHtml(lane.dest)} (${escapeHtml(lane.status)})\n\n${text}`;
+  if (viaTypedReply) {
+    await tgAdvanceMessage(env, chatId, anchorMessageId, confirmText, keyboard);
+  } else {
+    await tgEditMessage(env, chatId, anchorMessageId, confirmText, keyboard);
+  }
 
   await notifyTeamOfLaneChange(env, "added", lane, fromId);
 }
@@ -713,9 +719,9 @@ async function notifyTeamOfLaneChange(env, action, lane, actorId) {
 // Walks an admin through the free-text steps of adding a new roster member
 // (name -> role -> experience -> bio, experience/bio skippable via button or
 // typing "skip"), and applies a single-field edit for an existing member.
-// Every step **edits the original panel message** (`pending.anchorMessageId`,
-// captured once when the flow started) instead of sending a new one each
-// time — same "don't leave a trail of messages" fix as the lane flow.
+// Every branch here is responding to something the admin *typed*, so it uses
+// tgAdvanceMessage (delete old prompt, send a fresh one) instead of editing
+// in place — see tgAdvanceMessage's comment for why that matters.
 // The one step this can't handle is "photo" — that's routed separately in
 // handleMessage to handleRosterPhotoMessage, since it needs an actual
 // Telegram photo message, not text.
@@ -724,37 +730,38 @@ async function handlePendingRosterInput(env, chatId, fromId, text, pending) {
 
   if (pending.type === "roster_add") {
     if (pending.step === "name") {
-      await setPending(env, fromId, { type: "roster_add", step: "role", anchorMessageId: anchor, name: text });
-      await tgEditMessage(env, chatId, anchor, `✅ Name: ${escapeHtml(text)}\n\nWhat's their role/title? (e.g. "Driver Recruiter")`, cancelKeyboard("roster:cancelflow"));
+      const next = await tgAdvanceMessage(env, chatId, anchor, `✅ Name: ${escapeHtml(text)}\n\nWhat's their role/title? (e.g. "Driver Recruiter")`, cancelKeyboard("roster:cancelflow"));
+      await setPending(env, fromId, { type: "roster_add", step: "role", anchorMessageId: next, name: text });
       return;
     }
     if (pending.step === "role") {
-      await setPending(env, fromId, { ...pending, step: "experience", role: text });
-      await tgEditMessage(env, chatId, anchor, `✅ Role: ${escapeHtml(text)}\n\nExperience line? (e.g. "5+ yrs experience")`, {
+      const next = await tgAdvanceMessage(env, chatId, anchor, `✅ Role: ${escapeHtml(text)}\n\nExperience line? (e.g. "5+ yrs experience")`, {
         inline_keyboard: [
           [{ text: "⏭ Skip", callback_data: "rosteradd:skip:experience" }],
           [{ text: "✕ Cancel", callback_data: "roster:cancelflow" }],
         ],
       });
+      await setPending(env, fromId, { ...pending, step: "experience", anchorMessageId: next, role: text });
       return;
     }
     if (pending.step === "experience") {
-      await setPending(env, fromId, { ...pending, step: "bio", experience: text });
-      await tgEditMessage(env, chatId, anchor, `✅ Experience: ${escapeHtml(text)}\n\nShort bio line?`, {
+      const next = await tgAdvanceMessage(env, chatId, anchor, `✅ Experience: ${escapeHtml(text)}\n\nShort bio line?`, {
         inline_keyboard: [
           [{ text: "⏭ Skip", callback_data: "rosteradd:skip:bio" }],
           [{ text: "✕ Cancel", callback_data: "roster:cancelflow" }],
         ],
       });
+      await setPending(env, fromId, { ...pending, step: "bio", anchorMessageId: next, experience: text });
       return;
     }
     if (pending.step === "bio") {
-      await setPending(env, fromId, { ...pending, step: "photo", bio: text });
-      await tgEditMessage(env, chatId, anchor, `✅ Bio: ${escapeHtml(text)}\n\nNow send their photo (as a Telegram photo, not a file).`, cancelKeyboard("roster:cancelflow"));
+      const next = await tgAdvanceMessage(env, chatId, anchor, `✅ Bio: ${escapeHtml(text)}\n\nNow send their photo (as a Telegram photo, not a file).`, cancelKeyboard("roster:cancelflow"));
+      await setPending(env, fromId, { ...pending, step: "photo", anchorMessageId: next, bio: text });
       return;
     }
     if (pending.step === "photo") {
-      await tgEditMessage(env, chatId, anchor, "Please send an actual photo (attach an image) — a photo is required.", cancelKeyboard("roster:cancelflow"));
+      const next = await tgAdvanceMessage(env, chatId, anchor, "Please send an actual photo (attach an image) — a photo is required.", cancelKeyboard("roster:cancelflow"));
+      await setPending(env, fromId, { ...pending, anchorMessageId: next });
       return;
     }
   }
@@ -764,10 +771,11 @@ async function handlePendingRosterInput(env, chatId, fromId, text, pending) {
       if (text.trim().toLowerCase() === "cancel") {
         await clearPending(env, fromId);
         const view = await buildRosterDetailView(env, pending.memberId);
-        await tgEditMessage(env, chatId, anchor, `Cancelled — photo unchanged.\n\n${view.text}`, view.keyboard);
+        await tgAdvanceMessage(env, chatId, anchor, `Cancelled — photo unchanged.\n\n${view.text}`, view.keyboard);
         return;
       }
-      await tgEditMessage(env, chatId, anchor, "Please send an actual photo, or type 'cancel' to keep the current one.", cancelKeyboard(`roster:view:${pending.memberId}`));
+      const next = await tgAdvanceMessage(env, chatId, anchor, "Please send an actual photo, or type 'cancel' to keep the current one.", cancelKeyboard(`roster:view:${pending.memberId}`));
+      await setPending(env, fromId, { ...pending, anchorMessageId: next });
       return;
     }
 
@@ -775,21 +783,22 @@ async function handlePendingRosterInput(env, chatId, fromId, text, pending) {
     const member = roster.find((m) => m.id === pending.memberId);
     if (!member) {
       await clearPending(env, fromId);
-      await tgEditMessage(env, chatId, anchor, "That member no longer exists.");
+      await tgAdvanceMessage(env, chatId, anchor, "That member no longer exists.");
       return;
     }
     member[pending.field] = text;
     await saveRoster(env, roster);
     await clearPending(env, fromId);
     const view = await buildRosterDetailView(env, pending.memberId);
-    await tgEditMessage(env, chatId, anchor, `✅ Updated ${pending.field}.\n\n${view.text}`, view.keyboard);
+    await tgAdvanceMessage(env, chatId, anchor, `✅ Updated ${pending.field}.\n\n${view.text}`, view.keyboard);
   }
 }
 
 // Handles an incoming Telegram photo message during a roster add/edit flow —
 // downloads the largest available size (Telegram lists photo sizes
-// smallest-to-largest) and stores it in ROSTER_BUCKET. Same in-place-edit
-// treatment as the rest of these flows.
+// smallest-to-largest) and stores it in ROSTER_BUCKET. Same
+// delete-old/send-new treatment as the rest of these flows, since a photo
+// message is "typed input" just like text.
 async function handleRosterPhotoMessage(env, chatId, fromId, message, pending) {
   const anchor = pending.anchorMessageId;
   const sizes = message.photo || [];
@@ -801,7 +810,8 @@ async function handleRosterPhotoMessage(env, chatId, fromId, message, pending) {
     downloaded = await tgDownloadFile(env, best.file_id);
   } catch (err) {
     console.error("Roster photo download failed:", err?.message || err);
-    await tgEditMessage(env, chatId, anchor, "Couldn't download that photo — try sending it again.", cancelKeyboard("roster:cancelflow"));
+    const next = await tgAdvanceMessage(env, chatId, anchor, "Couldn't download that photo — try sending it again.", cancelKeyboard("roster:cancelflow"));
+    await setPending(env, fromId, { ...pending, anchorMessageId: next });
     return;
   }
 
@@ -822,7 +832,7 @@ async function handleRosterPhotoMessage(env, chatId, fromId, message, pending) {
     await saveRoster(env, roster);
     await clearPending(env, fromId);
     const { text, keyboard } = await buildRosterView(env);
-    await tgEditMessage(env, chatId, anchor, `✅ Added ${escapeHtml(member.name)} to the website roster.\n\n${text}`, keyboard);
+    await tgAdvanceMessage(env, chatId, anchor, `✅ Added ${escapeHtml(member.name)} to the website roster.\n\n${text}`, keyboard);
     return;
   }
 
@@ -831,7 +841,7 @@ async function handleRosterPhotoMessage(env, chatId, fromId, message, pending) {
     const member = roster.find((m) => m.id === pending.memberId);
     if (!member) {
       await clearPending(env, fromId);
-      await tgEditMessage(env, chatId, anchor, "That member no longer exists.");
+      await tgAdvanceMessage(env, chatId, anchor, "That member no longer exists.");
       return;
     }
     await uploadRosterPhoto(env, pending.memberId, downloaded.bytes, downloaded.contentType);
@@ -840,7 +850,7 @@ async function handleRosterPhotoMessage(env, chatId, fromId, message, pending) {
     await saveRoster(env, roster);
     await clearPending(env, fromId);
     const view = await buildRosterDetailView(env, pending.memberId);
-    await tgEditMessage(env, chatId, anchor, `✅ Photo updated.\n\n${view.text}`, view.keyboard);
+    await tgAdvanceMessage(env, chatId, anchor, `✅ Photo updated.\n\n${view.text}`, view.keyboard);
   }
 }
 
@@ -1007,7 +1017,9 @@ async function tgSend(env, chatId, text, replyMarkup) {
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Telegram DM to ${chatId} failed: ${await res.text()}`);
-  return res;
+  // Parsed body (not the raw fetch Response) — callers in the lane/roster
+  // conversation flows need result.message_id to track the new anchor.
+  return res.json();
 }
 
 async function tgEditMessage(env, chatId, messageId, text, replyMarkup) {
@@ -1020,6 +1032,34 @@ async function tgEditMessage(env, chatId, messageId, text, replyMarkup) {
   });
   if (!res.ok) console.error("tgEditMessage failed:", await res.text());
   return res;
+}
+
+async function tgDeleteMessage(env, chatId, messageId) {
+  if (!messageId) return;
+  try {
+    const res = await fetch(tgApi(env, "deleteMessage"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+    });
+    if (!res.ok) console.error("tgDeleteMessage failed:", await res.text());
+  } catch (err) {
+    console.error("tgDeleteMessage error:", err?.message || err);
+  }
+}
+
+// Deletes the previous step's bot message and sends a fresh one, returning
+// its message_id so the caller can carry it forward as the new anchor.
+// Editing in place (tgEditMessage) keeps a message at its *original*
+// position in the chat — fine for responding to a button tap, but wrong
+// after the admin types a reply: the edited prompt stays stuck above their
+// new message instead of appearing after it, so it looks like it vanished
+// off the bottom of the screen. Used everywhere a lane/roster conversation
+// step is responding to typed text or a photo, never to a button tap.
+async function tgAdvanceMessage(env, chatId, previousMessageId, text, replyMarkup) {
+  await tgDeleteMessage(env, chatId, previousMessageId);
+  const result = await tgSend(env, chatId, text, replyMarkup);
+  return result?.result?.message_id;
 }
 
 async function tgSendDocument(env, chatId, bytes, filename, contentType) {
